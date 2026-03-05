@@ -24,7 +24,8 @@
       "favicon": "./assets/favicon.ico"
     },
     "plugins": [
-      "expo-font"
+      "expo-font",
+      "expo-secure-store"
     ]
   }
 }
