@@ -7,10 +7,13 @@ import {
   ScrollView,
   ActivityIndicator,
 } from "react-native";
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { Audio } from "expo-av";
+import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
+import { VideoView, useVideoPlayer } from "expo-video";
+import { useEvent } from "expo";
+import Slider from "@react-native-community/slider";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors, fonts } from "@/constants";
@@ -19,6 +22,43 @@ import { getCapsule, toggleFavorite } from "@/services/capsules";
 import { normalizeCapsule } from "@/utils/normalize";
 import { useAuth } from "@/hooks/useAuth";
 import { getCachedCapsule, setCachedCapsule } from "@/utils/capsuleCache";
+
+// ─── Seek bar (native Slider) ─────────────────────────────────────────────────
+
+function SeekBar({ positionMs, durationMs, onSeek }) {
+  const [dragging, setDragging] = useState(false);
+  const [dragValue, setDragValue] = useState(0);
+  const normalized = durationMs > 0 ? Math.min(1, positionMs / durationMs) : 0;
+
+  return (
+    <Slider
+      style={seekStyles.slider}
+      value={dragging ? dragValue : normalized}
+      minimumValue={0}
+      maximumValue={1}
+      onSlidingStart={(v) => { setDragging(true); setDragValue(v); }}
+      onValueChange={(v) => setDragValue(v)}
+      onSlidingComplete={(v) => { setDragging(false); onSeek(v * durationMs); }}
+      minimumTrackTintColor={colors.primary}
+      maximumTrackTintColor={`${colors.primary}28`}
+      thumbTintColor={colors.primary}
+      tapToSeek
+    />
+  );
+}
+
+const seekStyles = StyleSheet.create({
+  slider: {
+    width: "100%",
+    height: 24,
+    marginVertical: 2,
+  },
+});
+
+function formatMs(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
 
 // ─── Content renderers ────────────────────────────────────────────────────────
 
@@ -61,65 +101,91 @@ function PhotoContent({ url }) {
 }
 
 function VoiceContent({ url, duration }) {
-  const soundRef = useRef(null);
-  const [playing, setPlaying] = useState(false);
-  const [loading, setLoading] = useState(false);
+  // expo-audio: times are in seconds; convert to ms for display/seek interface
+  const player = useAudioPlayer({ uri: url });
+  const status = useAudioPlayerStatus(player);
 
-  const toggle = async () => {
-    if (loading) return;
+  const positionMs = (status.currentTime ?? 0) * 1000;
+  const durationMs = status.duration ? status.duration * 1000 : (duration ? duration * 1000 : 0);
+  const playing = status.playing ?? false;
+
+  const toggle = () => {
     if (playing) {
-      await soundRef.current?.pauseAsync();
-      setPlaying(false);
-      return;
-    }
-    try {
-      setLoading(true);
-      if (!soundRef.current) {
-        const { sound } = await Audio.Sound.createAsync(
-          { uri: url },
-          { shouldPlay: true }
-        );
-        soundRef.current = sound;
-        sound.setOnPlaybackStatusUpdate((s) => {
-          if (s.didJustFinish) {
-            setPlaying(false);
-            soundRef.current = null;
-          }
-        });
-      } else {
-        await soundRef.current.playAsync();
-      }
-      setPlaying(true);
-    } catch (_) {
-      // ignore playback errors silently
-    } finally {
-      setLoading(false);
+      player.pause();
+    } else {
+      if (status.didJustFinish) player.seekTo(0);
+      player.play();
     }
   };
 
-  const label = duration
-    ? `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, "0")}`
-    : "Voice note";
+  const seek = (ms) => player.seekTo(ms / 1000);
 
   return (
-    <Pressable onPress={toggle} style={contentStyles.voiceCard}>
-      <View style={contentStyles.voiceIconWrap}>
-        {loading ? (
-          <ActivityIndicator size="small" color={colors.primary} />
-        ) : (
-          <Ionicons
-            name={playing ? "pause" : "play"}
-            size={22}
-            color={colors.primary}
-          />
-        )}
-      </View>
+    <View style={contentStyles.voiceCard}>
+      <Pressable onPress={toggle} style={contentStyles.voiceIconWrap}>
+        <Ionicons name={playing ? "pause" : "play"} size={22} color={colors.primary} />
+      </Pressable>
       <View style={contentStyles.voiceInfo}>
-        <Text style={contentStyles.voiceLabel}>Voice Note</Text>
-        <Text style={contentStyles.voiceDuration}>{label}</Text>
+        <View style={contentStyles.voiceTimeRow}>
+          <Text style={contentStyles.voiceLabel}>Voice Note</Text>
+          <Text style={contentStyles.voiceDuration}>
+            {formatMs(positionMs)} / {formatMs(durationMs)}
+          </Text>
+        </View>
+        <SeekBar positionMs={positionMs} durationMs={durationMs} onSeek={seek} />
       </View>
       <Ionicons name="mic-outline" size={18} color={colors.mutedFg} />
-    </Pressable>
+    </View>
+  );
+}
+
+function VideoContent({ url }) {
+  // expo-video: times are in seconds; set timeUpdateEventInterval for smooth tracking
+  const player = useVideoPlayer({ uri: url }, (p) => {
+    p.timeUpdateEventInterval = 0.25;
+  });
+
+  const { currentTime } = useEvent(player, "timeUpdate", { currentTime: 0 });
+  const { isPlaying } = useEvent(player, "playingChange", { isPlaying: false });
+
+  const positionMs = currentTime * 1000;
+  const durationMs = (isNaN(player.duration) ? 0 : player.duration) * 1000;
+
+  const toggle = () => {
+    if (isPlaying) {
+      player.pause();
+    } else {
+      if (positionMs >= durationMs && durationMs > 0) player.currentTime = 0;
+      player.play();
+    }
+  };
+
+  const seek = (ms) => { player.currentTime = ms / 1000; };
+
+  return (
+    <View style={contentStyles.videoContainer}>
+      <VideoView
+        player={player}
+        style={contentStyles.video}
+        contentFit="contain"
+        nativeControls={false}
+      />
+      <View style={contentStyles.videoControls}>
+        <Pressable onPress={toggle} style={contentStyles.voiceIconWrap}>
+          <Ionicons name={isPlaying ? "pause" : "play"} size={22} color={colors.primary} />
+        </Pressable>
+        <View style={contentStyles.voiceInfo}>
+          <View style={contentStyles.voiceTimeRow}>
+            <Text style={contentStyles.voiceLabel}>Video</Text>
+            <Text style={contentStyles.voiceDuration}>
+              {formatMs(positionMs)} / {formatMs(durationMs)}
+            </Text>
+          </View>
+          <SeekBar positionMs={positionMs} durationMs={durationMs} onSeek={seek} />
+        </View>
+        <Ionicons name="videocam-outline" size={18} color={colors.mutedFg} />
+      </View>
+    </View>
   );
 }
 
@@ -128,6 +194,7 @@ function ContentBlock({ item }) {
   if (item.content_type === "photo") return <PhotoContent url={item.url} />;
   if (item.content_type === "voice")
     return <VoiceContent url={item.url} duration={item.duration} />;
+  if (item.content_type === "video") return <VideoContent url={item.url} />;
   return null;
 }
 
@@ -196,6 +263,12 @@ const contentStyles = StyleSheet.create({
   voiceInfo: {
     flex: 1,
   },
+  voiceTimeRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 2,
+  },
   voiceLabel: {
     fontSize: 13,
     fontWeight: "500",
@@ -204,7 +277,27 @@ const contentStyles = StyleSheet.create({
   voiceDuration: {
     fontSize: 12,
     color: colors.mutedFg,
-    marginTop: 2,
+  },
+  videoContainer: {
+    borderRadius: 16,
+    overflow: "hidden",
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: 16,
+  },
+  video: {
+    width: "100%",
+    height: 220,
+    backgroundColor: "#000",
+  },
+  videoControls: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
 });
 
@@ -291,7 +384,15 @@ export default function UnlockedCapsuleScreen() {
         {/* Sender info */}
         <View style={styles.senderRow}>
           <View style={styles.senderAvatar}>
-            <Text style={styles.senderAvatarText}>{capsule.fromInitial}</Text>
+            {capsule.fromAvatar ? (
+              <Image
+                source={{ uri: capsule.fromAvatar }}
+                style={styles.senderAvatarImg}
+                resizeMode="cover"
+              />
+            ) : (
+              <Text style={styles.senderAvatarText}>{capsule.fromInitial}</Text>
+            )}
           </View>
           <View>
             <Text style={styles.senderName}>From {capsule.from}</Text>
@@ -413,6 +514,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: colors.foreground,
+  },
+  senderAvatarImg: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 22,
   },
   senderName: {
     fontSize: 15,

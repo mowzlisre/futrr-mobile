@@ -23,6 +23,7 @@ export function normalizeCapsule(c, currentUserId = null) {
     description: c.description || "",
     from: displayName,
     fromInitial: isOwn ? "Y" : displayName[0].toUpperCase(),
+    fromAvatar: c.created_by_avatar || null,
     type: CAPSULE_TYPE_MAP[c.capsule_type] || "MESSAGE",
     status: c.status, // "sealed" | "unlocked" | "expired" | "broken"
     unlocksAt: c.unlock_at,
@@ -35,6 +36,7 @@ export function normalizeCapsule(c, currentUserId = null) {
     locationName: c.location_name,
     contents: c.contents ?? [],
     encryptionType: c.encryption_type ?? "auto", // "auto" | "self"
+    passphraseHint: c.passphrase_hint || null,
     createdBy: c.created_by,
     _id: c.id,
   };

@@ -8,7 +8,7 @@ import {
   ActivityIndicator,
   FlatList,
 } from "react-native";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, memo } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { colors, fonts, ROUTES } from "@/constants";
@@ -133,7 +133,7 @@ function PersonRow({ person, onFollowToggle }) {
 
 // ─── Tab content ──────────────────────────────────────────────────────────────
 
-function TrendingTab({ userId }) {
+const TrendingTab = memo(function TrendingTab({ userId }) {
   const navigation = useNavigation();
   const [capsules, setCapsules] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -195,16 +195,19 @@ function TrendingTab({ userId }) {
       ))}
     </>
   );
-}
+});
 
-function FriendsTab({ userId }) {
+const FriendsTab = memo(function FriendsTab({ userId }) {
   const navigation = useNavigation();
   const [capsules, setCapsules] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     getFriendsFeed()
-      .then((data) => setCapsules(data.map((c) => normalizeCapsule(c, userId))))
+      .then((data) => {
+        const list = data.results ?? data;
+        setCapsules(list.map((c) => normalizeCapsule(c, userId)));
+      })
       .catch(() => setCapsules([]))
       .finally(() => setLoading(false));
   }, []);
@@ -225,9 +228,9 @@ function FriendsTab({ userId }) {
       }
     />
   ));
-}
+});
 
-function GlobalTab({ userId }) {
+const GlobalTab = memo(function GlobalTab({ userId }) {
   const [data, setData] = useState({ events: [], capsules: [] });
   const [loading, setLoading] = useState(true);
   const navigation = useNavigation();
@@ -276,7 +279,7 @@ function GlobalTab({ userId }) {
       )}
     </>
   );
-}
+});
 
 function EmptyHint({ icon, text }) {
   return (
@@ -289,7 +292,7 @@ function EmptyHint({ icon, text }) {
 
 // ─── Search results ───────────────────────────────────────────────────────────
 
-function SearchResults({ results, userId }) {
+const SearchResults = memo(function SearchResults({ results, userId }) {
   const navigation = useNavigation();
   const { capsules = [], people = [], events = [] } = results;
   if (!capsules.length && !people.length && !events.length) {
@@ -341,7 +344,7 @@ function SearchResults({ results, userId }) {
       )}
     </>
   );
-}
+});
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
@@ -352,6 +355,7 @@ export default function DiscoverScreen() {
   const [searchResults, setSearchResults] = useState(null);
   const [searching, setSearching] = useState(false);
   const searchTimer = useRef(null);
+  const searchVersionRef = useRef(0);
 
   const handleSearchChange = (text) => {
     setSearchText(text);
@@ -360,15 +364,22 @@ export default function DiscoverScreen() {
       setSearchResults(null);
       return;
     }
+    const version = ++searchVersionRef.current;
     searchTimer.current = setTimeout(async () => {
       setSearching(true);
       try {
         const res = await searchDiscover(text.trim());
-        setSearchResults(res);
+        if (searchVersionRef.current === version) {
+          setSearchResults(res);
+        }
       } catch (_) {
-        setSearchResults({ capsules: [], people: [], events: [] });
+        if (searchVersionRef.current === version) {
+          setSearchResults({ capsules: [], people: [], events: [] });
+        }
       } finally {
-        setSearching(false);
+        if (searchVersionRef.current === version) {
+          setSearching(false);
+        }
       }
     }, 400);
   };

@@ -5,13 +5,19 @@ import {
   ScrollView,
   StyleSheet,
   ActivityIndicator,
+  Image,
+  Alert,
+  ActionSheetIOS,
+  Modal,
+  Platform,
 } from "react-native";
 import { useState, useEffect, useCallback } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
+import * as ImagePicker from "expo-image-picker";
 import { colors, ROUTES, fonts } from "@/constants";
 import { useAuth } from "@/hooks/useAuth";
-import { getProfile } from "@/services/user";
+import { getProfile, uploadAvatar } from "@/services/user";
 import { getCapsules } from "@/services/capsules";
 import { normalizeCapsule } from "@/utils/normalize";
 import { formatDate } from "@/utils/date";
@@ -59,6 +65,9 @@ export default function ProfileScreen() {
   const [profile, setProfile] = useState(null);
   const [capsules, setCapsules] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [avatarUrl, setAvatarUrl] = useState(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [viewingAvatar, setViewingAvatar] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -67,6 +76,7 @@ export default function ProfileScreen() {
         getCapsules(),
       ]);
       setProfile(profileData);
+      if (profileData.avatar) setAvatarUrl(profileData.avatar);
       setCapsules(capsulesData.map((c) => normalizeCapsule(c, user?.id)));
     } catch {
       // fall back silently
@@ -87,6 +97,61 @@ export default function ProfileScreen() {
 
   const navigation = useNavigation();
 
+  const handleUploadAvatar = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission required", "Photo library access is needed to update your avatar.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: "images",
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.85,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+    try {
+      setUploadingAvatar(true);
+      const { avatar } = await uploadAvatar(result.assets[0].uri);
+      setAvatarUrl(avatar);
+    } catch {
+      Alert.alert("Upload failed", "Could not update your avatar. Please try again.");
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  const handleAvatarPress = () => {
+    if (Platform.OS === "ios") {
+      const options = avatarUrl
+        ? ["View Profile Picture", "Upload New Picture", "Cancel"]
+        : ["Upload Profile Picture", "Cancel"];
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options, cancelButtonIndex: options.length - 1 },
+        (index) => {
+          if (avatarUrl) {
+            if (index === 0) setViewingAvatar(true);
+            else if (index === 1) handleUploadAvatar();
+          } else {
+            if (index === 0) handleUploadAvatar();
+          }
+        }
+      );
+    } else {
+      const buttons = avatarUrl
+        ? [
+            { text: "View Profile Picture", onPress: () => setViewingAvatar(true) },
+            { text: "Upload New Picture", onPress: handleUploadAvatar },
+            { text: "Cancel", style: "cancel" },
+          ]
+        : [
+            { text: "Upload Profile Picture", onPress: handleUploadAvatar },
+            { text: "Cancel", style: "cancel" },
+          ];
+      Alert.alert("Profile Picture", "", buttons);
+    }
+  };
+
   const handleCapsulePress = (capsule) => {
     if (capsule.status === "unlocked") {
       navigation.navigate(ROUTES.UNLOCKED_CAPSULE, { capsule });
@@ -103,15 +168,26 @@ export default function ProfileScreen() {
       >
         {/* ── Avatar + name ── */}
         <View style={styles.avatarSection}>
-          <View style={styles.avatarRing}>
-            <View style={styles.avatar}>
-              {loading ? (
-                <ActivityIndicator color={colors.primary} />
+          <Pressable onPress={handleAvatarPress} style={styles.avatarWrapper}>
+            <View style={styles.avatarRing}>
+              <View style={styles.avatar}>
+                {loading ? (
+                  <ActivityIndicator color={colors.primary} />
+                ) : avatarUrl ? (
+                  <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+                ) : (
+                  <Text style={styles.avatarInitial}>{initial}</Text>
+                )}
+              </View>
+            </View>
+            <View style={styles.editBadge}>
+              {uploadingAvatar ? (
+                <ActivityIndicator size="small" color={colors.primaryFg} />
               ) : (
-                <Text style={styles.avatarInitial}>{initial}</Text>
+                <Ionicons name="camera" size={14} color={colors.primaryFg} />
               )}
             </View>
-          </View>
+          </Pressable>
           <Text style={styles.username}>{displayUser?.username || "Your Name"}</Text>
           <Text style={styles.email}>{displayUser?.email || "you@futrr.app"}</Text>
         </View>
@@ -153,6 +229,27 @@ export default function ProfileScreen() {
           </ScrollView>
         )}
       </ScrollView>
+
+      {/* ── Full-screen avatar viewer ── */}
+      <Modal
+        visible={viewingAvatar}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setViewingAvatar(false)}
+      >
+        <View style={styles.avatarViewOverlay}>
+          <Pressable style={styles.avatarViewClose} onPress={() => setViewingAvatar(false)}>
+            <Ionicons name="close" size={24} color={colors.foreground} />
+          </Pressable>
+          {avatarUrl ? (
+            <Image source={{ uri: avatarUrl }} style={styles.avatarViewImage} />
+          ) : (
+            <View style={styles.avatarViewPlaceholder}>
+              <Text style={styles.avatarViewInitial}>{initial}</Text>
+            </View>
+          )}
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -170,6 +267,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 24,
   },
+  avatarWrapper: {
+    marginBottom: 14,
+  },
   avatarRing: {
     width: 90,
     height: 90,
@@ -177,7 +277,6 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: `${colors.primary}50`,
     padding: 3,
-    marginBottom: 14,
   },
   avatar: {
     flex: 1,
@@ -185,11 +284,30 @@ const styles = StyleSheet.create({
     backgroundColor: colors.secondaryBackground,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+  },
+  avatarImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 42,
   },
   avatarInitial: {
     fontSize: 34,
     fontWeight: "300",
     color: colors.foreground,
+  },
+  editBadge: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: colors.background,
   },
   username: {
     fontSize: 22,
@@ -285,5 +403,39 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 14,
     color: colors.mutedFg,
+  },
+  // ── Avatar viewer modal ──
+  avatarViewOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.92)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarViewClose: {
+    position: "absolute",
+    top: 56,
+    right: 20,
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarViewImage: {
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+  },
+  avatarViewPlaceholder: {
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+    backgroundColor: colors.secondaryBackground,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarViewInitial: {
+    fontSize: 100,
+    fontWeight: "200",
+    color: colors.foreground,
   },
 });

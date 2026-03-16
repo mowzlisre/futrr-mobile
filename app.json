@@ -34,7 +34,9 @@
       "expo-font",
       "expo-secure-store",
       "expo-location",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-audio",
+      "expo-video"
     ]
   }
 }

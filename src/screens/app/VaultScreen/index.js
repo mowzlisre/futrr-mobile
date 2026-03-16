@@ -121,6 +121,19 @@ export default function VaultScreen() {
     ? Math.min(...sealed.map((c) => getDaysUntil(c.unlocksAt)))
     : 0;
 
+  // Auto-reload when the nearest sealed capsule's unlock time arrives
+  useEffect(() => {
+    if (!sealed.length) return;
+    const now = Date.now();
+    const nearest = sealed.reduce((min, c) => {
+      const t = new Date(c.unlocksAt).getTime();
+      return t > now && t < min ? t : min;
+    }, Infinity);
+    if (!isFinite(nearest)) return;
+    const timer = setTimeout(() => loadCapsules(), nearest - now + 1500);
+    return () => clearTimeout(timer);
+  }, [sealed, loadCapsules]);
+
   const handleCapsulePress = (capsule) => {
     if (capsule.status === "unlocked") {
       navigation.navigate(ROUTES.UNLOCKED_CAPSULE, { capsule });

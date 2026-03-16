@@ -39,3 +39,15 @@ export const getMyFollowing = async () => {
   const res = await api.get("/users/me/following/");
   return res.data;
 };
+
+export const uploadAvatar = async (fileUri) => {
+  const form = new FormData();
+  const filename = fileUri.split("/").pop();
+  const ext = filename.split(".").pop().toLowerCase();
+  const mimeType = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
+  form.append("avatar", { uri: fileUri, name: filename, type: mimeType });
+  const res = await api.post("/users/me/avatar/", form, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return res.data; // { avatar: presigned_url }
+};

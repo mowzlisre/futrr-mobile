@@ -10,6 +10,7 @@ import {
   Alert,
 } from "react-native";
 import { useState, useEffect, useRef } from "react";
+import { getStoredPassphrase } from "@/utils/passphrase";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute } from "@react-navigation/native";
@@ -137,8 +138,12 @@ function CountdownUnit({ value, label, dim }) {
 
 // ─── PassphraseModal ──────────────────────────────────────────────────────────
 
-function PassphraseModal({ visible, onConfirm, onDismiss, loading }) {
+function PassphraseModal({ visible, onConfirm, onDismiss, loading, prefilled, hint }) {
   const [value, setValue] = useState("");
+
+  useEffect(() => {
+    if (visible && prefilled) setValue(prefilled);
+  }, [visible, prefilled]);
 
   return (
     <Modal visible={visible} transparent animationType="fade">
@@ -152,6 +157,12 @@ function PassphraseModal({ visible, onConfirm, onDismiss, loading }) {
             This capsule was sealed with self-encryption. Enter the passphrase to
             decrypt its contents.
           </Text>
+          {!!hint && (
+            <View style={styles.passphraseHintBox}>
+              <Ionicons name="bulb-outline" size={13} color={colors.mutedFg} />
+              <Text style={styles.passphraseHintText}>Hint: {hint}</Text>
+            </View>
+          )}
           <TextInput
             style={styles.passphraseInput}
             placeholder="Your passphrase..."
@@ -161,8 +172,13 @@ function PassphraseModal({ visible, onConfirm, onDismiss, loading }) {
             secureTextEntry
             autoCapitalize="none"
             autoCorrect={false}
-            autoFocus
+            autoFocus={!prefilled}
           />
+          {!!prefilled && (
+            <Text style={styles.prefilledNote}>
+              Pre-filled from your saved passphrase.
+            </Text>
+          )}
           <View style={styles.passphraseActions}>
             <Pressable onPress={onDismiss} style={styles.passphraseCancelBtn}>
               <Text style={styles.passphraseCancelText}>Cancel</Text>
@@ -202,6 +218,16 @@ export default function LockedCapsuleScreen() {
 
   const [opening, setOpening] = useState(false);
   const [showPassphrase, setShowPassphrase] = useState(false);
+  const [storedPassphrase, setStoredPassphrase] = useState(null);
+
+  // Try to pre-fill passphrase from SecureStore (stored at seal time for 7 days)
+  useEffect(() => {
+    if (capsule.encryptionType === "self") {
+      getStoredPassphrase(capsule._id || capsule.id).then((p) => {
+        if (p) setStoredPassphrase(p);
+      });
+    }
+  }, [capsule._id, capsule.id, capsule.encryptionType]);
 
   // Tick every second; flip unlockable as soon as time is up
   useEffect(() => {
@@ -383,6 +409,8 @@ export default function LockedCapsuleScreen() {
         loading={opening}
         onConfirm={doUnlock}
         onDismiss={() => setShowPassphrase(false)}
+        prefilled={storedPassphrase}
+        hint={capsule.passphraseHint}
       />
     </SafeAreaView>
   );
@@ -666,5 +694,25 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: colors.primaryFg,
     letterSpacing: 1.5,
+  },
+  passphraseHintBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    backgroundColor: `${colors.mutedFg}12`,
+    borderRadius: 8,
+    padding: 10,
+  },
+  passphraseHintText: {
+    flex: 1,
+    fontSize: 12,
+    color: colors.mutedFg,
+    lineHeight: 18,
+  },
+  prefilledNote: {
+    fontSize: 11,
+    color: colors.primary,
+    textAlign: "center",
+    marginTop: -4,
   },
 });

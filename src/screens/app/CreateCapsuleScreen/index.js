@@ -11,19 +11,30 @@ import {
   Image,
   FlatList,
   ActivityIndicator,
+  Share,
 } from "react-native";
 import { useState, useRef, useEffect, useCallback } from "react";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import * as ImagePicker from "expo-image-picker";
-import { Audio } from "expo-av";
+import {
+  useAudioPlayer,
+  useAudioPlayerStatus,
+  useAudioRecorder,
+  useAudioRecorderState,
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+} from "expo-audio";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { colors } from "@/constants";
+import * as Location from "expo-location";
 import { getDaysUntil } from "@/utils/date";
 import { createCapsule, addCapsuleContent } from "@/services/capsules";
 import { searchUsers } from "@/services/user";
+import { generatePassphrase, storePassphrase } from "@/utils/passphrase";
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -46,13 +57,6 @@ const DEFAULT_DATE = new Date("2026-12-25");
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-function formatDisplayDate(date) {
-  return date.toLocaleDateString("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
-}
 
 function formatSeconds(secs) {
   const m = Math.floor(secs / 60)
@@ -106,7 +110,7 @@ function PhotoCapture({ photos, video, photoMode, onPhotosChange, onVideoChange,
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: "images",
       quality: 0.85,
-      allowsEditing: false,
+      allowsEditing: true,
     });
     if (!result.canceled && result.assets?.[0]) {
       onPhotosChange([...photos, result.assets[0].uri]);
@@ -122,7 +126,7 @@ function PhotoCapture({ photos, video, photoMode, onPhotosChange, onVideoChange,
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: "videos",
       videoMaxDuration: 60,
-      allowsEditing: false,
+      allowsEditing: true,
     });
     if (!result.canceled && result.assets?.[0]) {
       onVideoChange(result.assets[0].uri);
@@ -248,81 +252,63 @@ function PhotoCapture({ photos, video, photoMode, onPhotosChange, onVideoChange,
 // ─── VoiceRecorder ────────────────────────────────────────────────────────────
 
 function VoiceRecorder({ recordedUri, onRecorded }) {
-  const [recording, setRecording] = useState(null);
-  const [duration, setDuration] = useState(0);
-  const [playing, setPlaying] = useState(false);
-  const soundRef = useRef(null);
-  const timerRef = useRef(null);
+  // Hooks must be at top level — recorder and player are always created
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recState = useAudioRecorderState(recorder, 500);
+  const player = useAudioPlayer(recordedUri ? { uri: recordedUri } : null);
+  const playerStatus = useAudioPlayerStatus(player);
+
+  const isRecording = recState.isRecording ?? false;
+  // durationMillis is in ms; convert to whole seconds for display
+  const duration = Math.floor((recState.durationMillis ?? 0) / 1000);
+  const playing = playerStatus.playing ?? false;
 
   // Auto-stop at 60s
   useEffect(() => {
-    if (recording && duration >= MAX_VOICE_SECS) {
+    if (isRecording && duration >= MAX_VOICE_SECS) {
       stopRecording();
     }
-  }, [duration, recording]);
+  }, [duration, isRecording]);
 
-  // Cleanup on unmount
+  // When recordedUri changes (new recording), load it into the player
   useEffect(() => {
-    return () => {
-      clearInterval(timerRef.current);
-      soundRef.current?.unloadAsync();
-    };
-  }, []);
+    if (recordedUri) {
+      player.replace({ uri: recordedUri });
+    }
+  }, [recordedUri]);
 
   const startRecording = async () => {
-    const { status } = await Audio.requestPermissionsAsync();
-    if (status !== "granted") {
+    const { granted } = await requestRecordingPermissionsAsync();
+    if (!granted) {
       Alert.alert("Permission required", "Microphone access is needed to record audio.");
       return;
     }
-    await Audio.setAudioModeAsync({
-      allowsRecordingIOS: true,
-      playsInSilentModeIOS: true,
-    });
-    const { recording: rec } = await Audio.Recording.createAsync(
-      Audio.RecordingOptionsPresets.HIGH_QUALITY
-    );
-    setRecording(rec);
-    setDuration(0);
-    timerRef.current = setInterval(() => {
-      setDuration((d) => d + 1);
-    }, 1000);
+    await setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+    await recorder.prepareToRecordAsync();
+    recorder.record();
   };
 
   const stopRecording = async () => {
-    clearInterval(timerRef.current);
-    if (!recording) return;
-    await recording.stopAndUnloadAsync();
-    await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
-    const uri = recording.getURI();
-    setRecording(null);
-    onRecorded(uri);
+    await recorder.stop();
+    await setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+    onRecorded(recorder.uri);
   };
 
-  const playback = async () => {
+  const playback = () => {
     if (!recordedUri) return;
     if (playing) {
-      await soundRef.current?.stopAsync();
-      setPlaying(false);
-      return;
+      player.pause();
+    } else {
+      if (playerStatus.didJustFinish) player.seekTo(0);
+      player.play();
     }
-    const { sound } = await Audio.Sound.createAsync({ uri: recordedUri });
-    soundRef.current = sound;
-    setPlaying(true);
-    await sound.playAsync();
-    sound.setOnPlaybackStatusUpdate((status) => {
-      if (status.didJustFinish) setPlaying(false);
-    });
   };
 
   const discard = () => {
-    soundRef.current?.unloadAsync();
-    setPlaying(false);
-    setDuration(0);
+    player.pause();
     onRecorded(null);
   };
 
-  const isRecording = !!recording;
   const progress = Math.min(duration / MAX_VOICE_SECS, 1);
 
   return (
@@ -562,20 +548,24 @@ export default function CreateCapsuleScreen() {
   // Voice state
   const [recordedUri, setRecordedUri] = useState(null);
 
-  // Native date picker
+  // Separate date and time pickers
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
   const [tempDate, setTempDate] = useState(DEFAULT_DATE);
+  const [tempTime, setTempTime] = useState(DEFAULT_DATE);
 
-  // Visibility
-  const [isPublic, setIsPublic] = useState(false);
-
-  // Encryption accordion
+  // Settings accordion (encryption + visibility + atlas + send-to)
+  const [settingsExpanded, setSettingsExpanded] = useState(false);
   const [encryptionType, setEncryptionType] = useState("auto");
-  const [encryptionExpanded, setEncryptionExpanded] = useState(false);
-  const [passphrase, setPassphrase] = useState("");
+  const [passphraseHint, setPassphraseHint] = useState("");
+  const [isPublic, setIsPublic] = useState(false);
+  const [showInAtlas, setShowInAtlas] = useState(false);
+  const [atlasLocation, setAtlasLocation] = useState(null); // { lat, lng, name }
+  const [fetchingLocation, setFetchingLocation] = useState(false);
 
   // Modals
   const [showSendTo, setShowSendTo] = useState(false);
+  const [revealedPassphrase, setRevealedPassphrase] = useState(null); // set after seal
 
   // Submit
   const [sealing, setSealing] = useState(false);
@@ -597,13 +587,73 @@ export default function CreateCapsuleScreen() {
     setShowDatePicker(true);
   };
 
+  const openTimePicker = () => {
+    setTempTime(unlockDate);
+    setShowTimePicker(true);
+  };
+
+  // Android: date picker
   const onAndroidDateChange = (event, selectedDate) => {
     setShowDatePicker(false);
-    if (event.type !== "dismissed" && selectedDate) setUnlockDate(selectedDate);
+    if (event.type === "dismissed" || !selectedDate) return;
+    // Preserve existing time
+    const updated = new Date(selectedDate);
+    updated.setHours(unlockDate.getHours(), unlockDate.getMinutes(), 0, 0);
+    setUnlockDate(updated);
+  };
+
+  // Android: time picker
+  const onAndroidTimeChange = (event, selectedTime) => {
+    setShowTimePicker(false);
+    if (event.type === "dismissed" || !selectedTime) return;
+    const updated = new Date(unlockDate);
+    updated.setHours(selectedTime.getHours(), selectedTime.getMinutes(), 0, 0);
+    setUnlockDate(updated);
   };
 
   const onIOSDateChange = (_, selectedDate) => {
     if (selectedDate) setTempDate(selectedDate);
+  };
+
+  const onIOSTimeChange = (_, selectedTime) => {
+    if (selectedTime) setTempTime(selectedTime);
+  };
+
+  const confirmIOSTime = () => {
+    const updated = new Date(unlockDate);
+    updated.setHours(tempTime.getHours(), tempTime.getMinutes(), 0, 0);
+    setUnlockDate(updated);
+    setShowTimePicker(false);
+  };
+
+  const handleAtlasToggle = async (value) => {
+    if (!value) {
+      setShowInAtlas(false);
+      setAtlasLocation(null);
+      return;
+    }
+    setFetchingLocation(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Location required", "Allow location access to tag this capsule on the Atlas.");
+        return;
+      }
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const [geo] = await Location.reverseGeocodeAsync({
+        latitude: loc.coords.latitude,
+        longitude: loc.coords.longitude,
+      });
+      const name = geo
+        ? [geo.city || geo.district, geo.region, geo.country].filter(Boolean).join(", ")
+        : "Current location";
+      setAtlasLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude, name });
+      setShowInAtlas(true);
+    } catch (_) {
+      Alert.alert("Location error", "Could not get your location. Please try again.");
+    } finally {
+      setFetchingLocation(false);
+    }
   };
 
   const confirmIOSDate = () => {
@@ -615,8 +665,7 @@ export default function CreateCapsuleScreen() {
 
   const handleEncryptionType = (value) => {
     setEncryptionType(value);
-    setEncryptionExpanded(value === "self");
-    if (value === "auto") setPassphrase("");
+    if (value === "auto") setPassphraseHint("");
   };
 
   // ── seal ──────────────────────────────────────────────────────────────────
@@ -624,10 +673,6 @@ export default function CreateCapsuleScreen() {
   const handleSeal = async () => {
     if (!title.trim()) {
       Alert.alert("Missing title", "Please give your capsule a title.");
-      return;
-    }
-    if (encryptionType === "self" && !passphrase.trim()) {
-      Alert.alert("Passphrase required", "Enter a passphrase for self-encryption.");
       return;
     }
     if (!message.trim()) {
@@ -649,10 +694,22 @@ export default function CreateCapsuleScreen() {
 
     try {
       setSealing(true);
+
+      // Auto-generate passphrase for self-encrypted capsules
+      const generatedPassphrase = encryptionType === "self" ? generatePassphrase() : null;
+
       const capsule = await createCapsule({
         title: title.trim(),
         unlock_at: unlockDate.toISOString(),
         is_public: isPublic,
+        passphrase_hint: passphraseHint.trim(),
+        ...(showInAtlas && atlasLocation
+          ? {
+              latitude: atlasLocation.lat,
+              longitude: atlasLocation.lng,
+              location_name: atlasLocation.name,
+            }
+          : {}),
       });
 
       // Text is always required and uploaded for every capsule type
@@ -681,9 +738,12 @@ export default function CreateCapsuleScreen() {
         });
       }
 
-      Alert.alert("Sealed!", "Your capsule has been sealed.", [
-        { text: "OK", onPress: () => navigation.goBack() },
-      ]);
+      if (generatedPassphrase) {
+        await storePassphrase(capsule.id, generatedPassphrase);
+        setRevealedPassphrase(generatedPassphrase);
+      } else {
+        navigation.goBack();
+      }
     } catch (err) {
       const msg =
         err?.response?.data?.error || err?.error || "Failed to seal capsule";
@@ -771,158 +831,198 @@ export default function CreateCapsuleScreen() {
           </View>
         )}
 
-        {/* Send To */}
-        <View style={styles.field}>
-          <Text style={styles.fieldLabel}>SEND TO</Text>
-          <Pressable onPress={() => setShowSendTo(true)} style={styles.selectRow}>
-            <View style={styles.recipientAvatar}>
-              <Text style={styles.recipientAvatarText}>{recipient.initial}</Text>
-            </View>
-            <Text style={styles.selectValue}>{recipient.label}</Text>
-            <Ionicons name="chevron-down" size={18} color={colors.mutedFg} />
-          </Pressable>
-        </View>
-
         {/* Unlock Date */}
         <View style={styles.field}>
           <Text style={styles.fieldLabel}>UNLOCK DATE</Text>
           <Pressable onPress={openDatePicker} style={styles.selectRow}>
             <Ionicons name="calendar-outline" size={18} color={colors.mutedFg} />
-            <Text style={styles.selectValue}>{formatDisplayDate(unlockDate)}</Text>
+            <Text style={styles.selectValue}>
+              {unlockDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+            </Text>
             <View style={styles.daysBadge}>
               <Text style={styles.daysBadgeText}>{daysUntil}d</Text>
             </View>
           </Pressable>
         </View>
 
-        {/* ── Encryption Accordion ─────────────────────────────────────────── */}
+        {/* Unlock Time */}
+        <View style={styles.field}>
+          <Text style={styles.fieldLabel}>UNLOCK TIME</Text>
+          <Pressable onPress={openTimePicker} style={styles.selectRow}>
+            <Ionicons name="time-outline" size={18} color={colors.mutedFg} />
+            <Text style={styles.selectValue}>
+              {unlockDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}
+            </Text>
+          </Pressable>
+        </View>
+
+        {/* ── Settings Accordion (Encryption + Visibility + Atlas) ─────────── */}
         <View style={styles.accordionCard}>
+          {/* Header */}
           <Pressable
-            onPress={() => {
-              if (encryptionType === "self") setEncryptionExpanded((v) => !v);
-            }}
+            onPress={() => setSettingsExpanded((v) => !v)}
             style={styles.accordionHeader}
           >
             <View style={styles.accordionHeaderLeft}>
-              <Ionicons
-                name="lock-closed-outline"
-                size={16}
-                color={colors.mutedFg}
-              />
-              <Text style={styles.accordionHeaderLabel}>ENCRYPTION</Text>
+              <Ionicons name="options-outline" size={16} color={colors.mutedFg} />
+              <Text style={styles.accordionHeaderLabel}>SETTINGS</Text>
             </View>
-
-            <View style={styles.encToggle}>
-              <Pressable
-                onPress={() => handleEncryptionType("auto")}
-                style={[
-                  styles.encToggleBtn,
-                  encryptionType === "auto" && styles.encToggleBtnActive,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.encToggleText,
-                    encryptionType === "auto" && styles.encToggleTextActive,
-                  ]}
-                >
-                  Auto
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => handleEncryptionType("self")}
-                style={[
-                  styles.encToggleBtn,
-                  encryptionType === "self" && styles.encToggleBtnActive,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.encToggleText,
-                    encryptionType === "self" && styles.encToggleTextActive,
-                  ]}
-                >
-                  Self
-                </Text>
-              </Pressable>
+            <View style={styles.settingsSummary}>
+              <Text style={styles.settingsSummaryText}>
+                {encryptionType === "self" ? "Self-enc" : "Auto-enc"} · {isPublic ? "Public" : "Private"}{showInAtlas ? " · Atlas" : ""} · {recipient.label}
+              </Text>
             </View>
-
-            {encryptionType === "self" && (
-              <Ionicons
-                name={encryptionExpanded ? "chevron-up" : "chevron-down"}
-                size={16}
-                color={colors.mutedFg}
-                style={{ marginLeft: 8 }}
-              />
-            )}
+            <Ionicons
+              name={settingsExpanded ? "chevron-up" : "chevron-down"}
+              size={16}
+              color={colors.mutedFg}
+              style={{ marginLeft: 8 }}
+            />
           </Pressable>
 
-          {encryptionType === "self" && encryptionExpanded && (
+          {settingsExpanded && (
             <View style={styles.accordionBody}>
-              <View style={styles.passphraseHint}>
-                <Ionicons
-                  name="information-circle-outline"
-                  size={14}
-                  color={colors.mutedFg}
-                />
-                <Text style={styles.passphraseHintText}>
-                  Your passphrase will be required to open this capsule.
-                </Text>
+              {/* Encryption */}
+              <View style={styles.settingsSection}>
+                <View style={styles.settingsSectionHeader}>
+                  <Ionicons name="lock-closed-outline" size={14} color={colors.mutedFg} />
+                  <Text style={styles.settingsSectionLabel}>ENCRYPTION</Text>
+                </View>
+                <View style={styles.encToggle}>
+                  <Pressable
+                    onPress={() => handleEncryptionType("auto")}
+                    style={[styles.encToggleBtn, encryptionType === "auto" && styles.encToggleBtnActive]}
+                  >
+                    <Text style={[styles.encToggleText, encryptionType === "auto" && styles.encToggleTextActive]}>
+                      Auto
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => handleEncryptionType("self")}
+                    style={[styles.encToggleBtn, encryptionType === "self" && styles.encToggleBtnActive]}
+                  >
+                    <Text style={[styles.encToggleText, encryptionType === "self" && styles.encToggleTextActive]}>
+                      Self
+                    </Text>
+                  </Pressable>
+                </View>
+                {encryptionType === "self" && (
+                  <View style={styles.passphraseSection}>
+                    <View style={styles.passphraseInfoRow}>
+                      <Ionicons name="information-circle-outline" size={14} color={colors.mutedFg} />
+                      <Text style={styles.passphraseHintText}>
+                        A passphrase will be auto-generated when you seal. You'll see it once — save it somewhere safe.
+                      </Text>
+                    </View>
+                    <TextInput
+                      style={styles.passphraseInput}
+                      placeholder="Optional hint for the recipient..."
+                      placeholderTextColor={colors.mutedFg}
+                      value={passphraseHint}
+                      onChangeText={setPassphraseHint}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      maxLength={200}
+                    />
+                  </View>
+                )}
               </View>
-              <TextInput
-                style={styles.passphraseInput}
-                placeholder="Enter passphrase..."
-                placeholderTextColor={colors.mutedFg}
-                value={passphrase}
-                onChangeText={setPassphrase}
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
+
+              <View style={styles.settingsDivider} />
+
+              {/* Visibility */}
+              <View style={styles.settingsSection}>
+                <View style={styles.settingsSectionHeader}>
+                  <Ionicons
+                    name={isPublic ? "earth-outline" : "lock-closed-outline"}
+                    size={14}
+                    color={isPublic ? colors.primary : colors.mutedFg}
+                  />
+                  <Text style={styles.settingsSectionLabel}>VISIBILITY</Text>
+                </View>
+                <View style={styles.visibilityToggleRow}>
+                  {["Private", "Public"].map((opt) => {
+                    const active = (opt === "Public") === isPublic;
+                    return (
+                      <Pressable
+                        key={opt}
+                        onPress={() => {
+                          const pub = opt === "Public";
+                          setIsPublic(pub);
+                          if (!pub) {
+                            setShowInAtlas(false);
+                            setAtlasLocation(null);
+                          }
+                        }}
+                        style={[styles.visibilityOpt, active && styles.visibilityOptActive]}
+                      >
+                        <Text style={[styles.visibilityOptText, active && styles.visibilityOptTextActive]}>
+                          {opt}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* Atlas (only when public) */}
+              {isPublic && (
+                <>
+                  <View style={styles.settingsDivider} />
+                  <View style={styles.settingsSection}>
+                    <View style={styles.settingsSectionHeader}>
+                      <Ionicons name="map-outline" size={14} color={colors.mutedFg} />
+                      <Text style={styles.settingsSectionLabel}>ATLAS LOCATION</Text>
+                    </View>
+                    <Pressable
+                      onPress={() => handleAtlasToggle(!showInAtlas)}
+                      disabled={fetchingLocation}
+                      style={styles.atlasRow}
+                    >
+                      <View style={[styles.atlasCheckbox, showInAtlas && styles.atlasCheckboxChecked]}>
+                        {showInAtlas && <Ionicons name="checkmark" size={12} color={colors.primaryFg} />}
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.atlasLabel}>Show in Atlas</Text>
+                        {showInAtlas && atlasLocation ? (
+                          <Text style={styles.atlasLocationName}>{atlasLocation.name}</Text>
+                        ) : (
+                          <Text style={styles.atlasSubLabel}>Pin this capsule on the world map</Text>
+                        )}
+                      </View>
+                      {fetchingLocation && (
+                        <ActivityIndicator size="small" color={colors.primary} />
+                      )}
+                    </Pressable>
+                    {showInAtlas && (
+                      <View style={styles.atlasWarning}>
+                        <Ionicons name="warning-outline" size={13} color={colors.mutedFg} />
+                        <Text style={styles.atlasWarningText}>
+                          This capsule will appear on the Atlas and other users will be able to see its content from the location.
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </>
+              )}
+
+              {/* Send To */}
+              <View style={styles.settingsDivider} />
+              <View style={styles.settingsSection}>
+                <View style={styles.settingsSectionHeader}>
+                  <Ionicons name="paper-plane-outline" size={14} color={colors.mutedFg} />
+                  <Text style={styles.settingsSectionLabel}>SEND TO</Text>
+                </View>
+                <Pressable onPress={() => setShowSendTo(true)} style={styles.sendToInlineRow}>
+                  <View style={styles.recipientAvatar}>
+                    <Text style={styles.recipientAvatarText}>{recipient.initial}</Text>
+                  </View>
+                  <Text style={styles.sendToInlineValue}>{recipient.label}</Text>
+                  <Ionicons name="chevron-forward" size={16} color={colors.mutedFg} />
+                </Pressable>
+              </View>
             </View>
           )}
-        </View>
-
-        {/* Visibility */}
-        <View style={styles.visibilityRow}>
-          <View style={styles.visibilityLeft}>
-            <Ionicons
-              name={isPublic ? "earth-outline" : "lock-closed-outline"}
-              size={18}
-              color={isPublic ? colors.primary : colors.mutedFg}
-            />
-            <View>
-              <Text style={styles.visibilityLabel}>
-                {isPublic ? "Public" : "Private"}
-              </Text>
-              <Text style={styles.visibilityDesc}>
-                {isPublic
-                  ? "Anyone can discover this capsule"
-                  : "Only you and recipients can see this"}
-              </Text>
-            </View>
-          </View>
-          <View style={styles.visibilityToggleRow}>
-            {["Private", "Public"].map((opt) => {
-              const active = (opt === "Public") === isPublic;
-              return (
-                <Pressable
-                  key={opt}
-                  onPress={() => setIsPublic(opt === "Public")}
-                  style={[styles.visibilityOpt, active && styles.visibilityOptActive]}
-                >
-                  <Text
-                    style={[
-                      styles.visibilityOptText,
-                      active && styles.visibilityOptTextActive,
-                    ]}
-                  >
-                    {opt}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
         </View>
 
         {/* Warning */}
@@ -956,7 +1056,7 @@ export default function CreateCapsuleScreen() {
         </Pressable>
       </ScrollView>
 
-      {/* ── Native date picker ───────────────────────────────────────────────── */}
+      {/* ── Date picker ─────────────────────────────────────────────────────── */}
 
       {Platform.OS === "android" && showDatePicker && (
         <DateTimePicker
@@ -970,10 +1070,7 @@ export default function CreateCapsuleScreen() {
 
       {Platform.OS === "ios" && (
         <Modal visible={showDatePicker} transparent animationType="fade">
-          <Pressable
-            style={styles.modalOverlay}
-            onPress={() => setShowDatePicker(false)}
-          >
+          <Pressable style={styles.modalOverlay} onPress={() => setShowDatePicker(false)}>
             <Pressable style={styles.iosPickerCard} onPress={() => {}}>
               <View style={styles.iosPickerHeader}>
                 <Text style={styles.iosPickerTitle}>UNLOCK DATE</Text>
@@ -994,6 +1091,82 @@ export default function CreateCapsuleScreen() {
           </Pressable>
         </Modal>
       )}
+
+      {/* ── Time picker ─────────────────────────────────────────────────────── */}
+
+      {Platform.OS === "android" && showTimePicker && (
+        <DateTimePicker
+          value={unlockDate}
+          mode="time"
+          display="default"
+          onChange={onAndroidTimeChange}
+        />
+      )}
+
+      {Platform.OS === "ios" && (
+        <Modal visible={showTimePicker} transparent animationType="fade">
+          <Pressable style={styles.modalOverlay} onPress={() => setShowTimePicker(false)}>
+            <Pressable style={styles.iosPickerCard} onPress={() => {}}>
+              <View style={styles.iosPickerHeader}>
+                <Text style={styles.iosPickerTitle}>UNLOCK TIME</Text>
+                <Pressable onPress={confirmIOSTime} style={styles.iosDoneBtn}>
+                  <Text style={styles.iosDoneBtnText}>Done</Text>
+                </Pressable>
+              </View>
+              <DateTimePicker
+                value={tempTime}
+                mode="time"
+                display="spinner"
+                onChange={onIOSTimeChange}
+                themeVariant="dark"
+                style={styles.iosPicker}
+              />
+            </Pressable>
+          </Pressable>
+        </Modal>
+      )}
+
+      {/* ── Passphrase Reveal Modal ──────────────────────────────────────────── */}
+
+      <Modal visible={!!revealedPassphrase} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.revealCard}>
+            <View style={styles.revealIconRow}>
+              <Ionicons name="key" size={28} color={colors.primary} />
+            </View>
+            <Text style={styles.revealTitle}>Your Passphrase</Text>
+            <Text style={styles.revealSubtitle}>
+              Save this now — it will not be shown again. You'll need it to open the capsule.
+            </Text>
+            <View style={styles.revealPassphraseBox}>
+              <Text style={styles.revealPassphraseText} selectable>
+                {revealedPassphrase}
+              </Text>
+            </View>
+            <Text style={styles.revealTTL}>Stored locally on this device for 7 days.</Text>
+            <View style={styles.revealActions}>
+              <Pressable
+                style={styles.revealShareBtn}
+                onPress={() =>
+                  Share.share({ message: `Your capsule passphrase: ${revealedPassphrase}` })
+                }
+              >
+                <Ionicons name="share-outline" size={16} color={colors.primary} />
+                <Text style={styles.revealShareText}>Share / Save</Text>
+              </Pressable>
+              <Pressable
+                style={styles.revealDoneBtn}
+                onPress={() => {
+                  setRevealedPassphrase(null);
+                  navigation.goBack();
+                }}
+              >
+                <Text style={styles.revealDoneText}>I'VE SAVED IT</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Send To modal */}
       <SendToModal
@@ -1436,54 +1609,114 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
   },
 
-  // ── visibility
-  visibilityRow: {
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: 12,
-    marginBottom: 12,
-  },
-  visibilityLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  visibilityLabel: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: colors.foreground,
-  },
-  visibilityDesc: {
-    fontSize: 11,
-    color: colors.mutedFg,
-    marginTop: 2,
-  },
+  // ── visibility (kept for use inside accordion)
   visibilityToggleRow: {
     flexDirection: "row",
-    backgroundColor: colors.secondaryBackground,
-    borderRadius: 10,
-    padding: 3,
-    gap: 3,
+    gap: 8,
   },
   visibilityOpt: {
     flex: 1,
-    paddingVertical: 7,
-    borderRadius: 8,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: colors.secondaryBackground,
+    borderWidth: 1,
+    borderColor: colors.border,
     alignItems: "center",
   },
   visibilityOptActive: {
     backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   visibilityOptText: {
-    fontSize: 12,
-    fontWeight: "600",
+    fontSize: 13,
     color: colors.mutedFg,
+    fontWeight: "500",
   },
   visibilityOptTextActive: {
     color: colors.primaryFg,
+    fontWeight: "700",
+  },
+  // ── settings accordion internals
+  settingsSummary: {
+    flex: 1,
+    alignItems: "flex-end",
+    marginRight: 4,
+  },
+  settingsSummaryText: {
+    fontSize: 11,
+    color: colors.mutedFg,
+  },
+  settingsSection: {
+    gap: 10,
+  },
+  settingsSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  settingsSectionLabel: {
+    fontSize: 10,
+    color: colors.mutedFg,
+    letterSpacing: 1.5,
+    fontWeight: "500",
+    textTransform: "uppercase",
+  },
+  settingsDivider: {
+    height: 1,
+    backgroundColor: colors.border,
+  },
+  passphraseSection: {
+    gap: 8,
+  },
+  // ── atlas
+  atlasRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  atlasCheckbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    backgroundColor: colors.secondaryBackground,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  atlasCheckboxChecked: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  atlasLabel: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: colors.foreground,
+  },
+  atlasSubLabel: {
+    fontSize: 12,
+    color: colors.mutedFg,
+    marginTop: 2,
+  },
+  atlasLocationName: {
+    fontSize: 12,
+    color: colors.primary,
+    marginTop: 2,
+  },
+  atlasWarning: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    backgroundColor: `${colors.mutedFg}15`,
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 4,
+  },
+  atlasWarningText: {
+    flex: 1,
+    fontSize: 12,
+    color: colors.mutedFg,
+    lineHeight: 18,
   },
 
   // ── warning + seal
@@ -1670,5 +1903,109 @@ const styles = StyleSheet.create({
   noResultsText: {
     fontSize: 13,
     color: colors.mutedFg,
+  },
+
+  // ── passphrase info row (inside encryption section)
+  passphraseInfoRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+  },
+
+  // ── send-to inline row (inside accordion)
+  sendToInlineRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: colors.secondaryBackground,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  sendToInlineValue: {
+    flex: 1,
+    fontSize: 14,
+    color: colors.foreground,
+  },
+
+  // ── passphrase reveal modal
+  revealCard: {
+    width: "100%",
+    backgroundColor: colors.card,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 24,
+    gap: 14,
+  },
+  revealIconRow: {
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  revealTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: colors.foreground,
+    textAlign: "center",
+  },
+  revealSubtitle: {
+    fontSize: 13,
+    color: colors.mutedFg,
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  revealPassphraseBox: {
+    backgroundColor: colors.secondaryBackground,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: `${colors.primary}40`,
+    paddingVertical: 18,
+    paddingHorizontal: 16,
+    alignItems: "center",
+  },
+  revealPassphraseText: {
+    fontSize: 22,
+    fontWeight: "300",
+    color: colors.primary,
+    letterSpacing: 1.5,
+    textAlign: "center",
+  },
+  revealTTL: {
+    fontSize: 11,
+    color: colors.mutedFg,
+    textAlign: "center",
+  },
+  revealActions: {
+    gap: 10,
+    marginTop: 4,
+  },
+  revealShareBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: 12,
+    paddingVertical: 12,
+  },
+  revealShareText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: colors.primary,
+  },
+  revealDoneBtn: {
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  revealDoneText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.primaryFg,
+    letterSpacing: 1.5,
   },
 });
