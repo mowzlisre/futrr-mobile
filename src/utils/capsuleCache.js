@@ -21,7 +21,3 @@ export function getCachedCapsule(id) {
 export function setCachedCapsule(id, data) {
   cache.set(id, { data, expiresAt: Date.now() + TTL_MS });
 }
-
-export function invalidateCapsule(id) {
-  cache.delete(id);
-}

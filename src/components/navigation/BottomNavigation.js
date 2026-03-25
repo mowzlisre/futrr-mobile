@@ -1,18 +1,21 @@
-import { View, Pressable, StyleSheet, Animated } from "react-native";
+import { View, Text, Pressable, StyleSheet, Animated } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useMemo } from "react";
 import { useNavigation } from "@react-navigation/native";
-import { colors, TABS, ROUTES } from "@/constants";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { TABS, ROUTES } from "@/constants";
+import { useTheme } from "@/hooks/useTheme";
+import { hapticLight, hapticMedium } from "@/utils/haptics";
 
 const TABS_CONFIG = [
-  { id: TABS.VAULT, icon: "albums-outline", label: "Your Capsules", active: "albums" },
-  { id: TABS.DISCOVER, icon: "search-outline", label: "Around You", active: "search" },
-  { id: TABS.TIMELINE, icon: "time-outline", label: "Your Timeline", active: "time" },
-  { id: TABS.PROFILE, icon: "person-outline", label: "Your Profile", active: "person" },
+  { id: TABS.VAULT, icon: "albums-outline", label: "Your Capsules", active: "albums", name: "Vault" },
+  { id: TABS.DISCOVER, icon: "search-outline", label: "Around You", active: "search", name: "Discover" },
+  { id: TABS.TIMELINE, icon: "time-outline", label: "Your Timeline", active: "time", name: "Timeline" },
+  { id: TABS.PROFILE, icon: "person-outline", label: "Your Profile", active: "person", name: "Profile" },
 ];
 
-function TabItem({ tab, isActive, onPress }) {
+function TabItem({ tab, isActive, onPress, colors, styles }) {
   const scale = useRef(new Animated.Value(1)).current;
   const opacity = useRef(new Animated.Value(isActive ? 1 : 0)).current;
 
@@ -35,25 +38,25 @@ function TabItem({ tab, isActive, onPress }) {
       onPress={onPress}
       style={styles.tab}
       android_ripple={{ color: "rgba(234,166,70,0.18)", borderless: true, radius: 28 }}
+      accessibilityRole="tab"
+      accessibilityLabel={tab.label}
+      accessibilityState={{ selected: isActive }}
     >
       <Animated.View
         style={[
           styles.activeDot,
-          {
-            opacity,
-            shadowColor: colors.primary,
-            shadowOpacity: 0.9,
-            shadowRadius: 8,
-            shadowOffset: { width: 0, height: 0 },
-          },
+          { opacity },
         ]}
       />
-      <Animated.View style={{ transform: [{ scale }] }}>
+      <Animated.View style={{ transform: [{ scale }], alignItems: "center" }}>
         <Ionicons
           name={isActive ? tab.active : tab.icon}
-          size={24}
+          size={20}
           color={isActive ? colors.foreground : colors.mutedFg}
         />
+        <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
+          {tab.name}
+        </Text>
       </Animated.View>
     </Pressable>
   );
@@ -62,6 +65,9 @@ function TabItem({ tab, isActive, onPress }) {
 export function BottomNavigation({ activeTab, onTabChange }) {
   const fabScale = useRef(new Animated.Value(1)).current;
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
 
   const handleFabPressIn = () => {
     Animated.spring(fabScale, {
@@ -82,20 +88,24 @@ export function BottomNavigation({ activeTab, onTabChange }) {
   };
 
   const handleFabPress = () => {
+    hapticMedium();
     navigation.navigate(ROUTES.CREATE_CAPSULE);
   };
 
+  const bottomPad = Math.max(insets.bottom, 12);
+
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingBottom: bottomPad }]}>
       {/* Pill with 4 icons */}
-      <BlurView intensity={80} tint="dark" style={styles.navBar}>
-        <View />
+      <BlurView intensity={isDark ? 60 : 80} tint={isDark ? "dark" : "light"} style={styles.navBar}>
         {TABS_CONFIG.map((tab) => (
           <TabItem
             key={tab.id}
             tab={tab}
             isActive={activeTab === tab.id}
-            onPress={() => onTabChange(tab)}
+            onPress={() => { hapticLight(); onTabChange(tab); }}
+            colors={colors}
+            styles={styles}
           />
         ))}
       </BlurView>
@@ -107,6 +117,8 @@ export function BottomNavigation({ activeTab, onTabChange }) {
           onPressOut={handleFabPressOut}
           onPress={handleFabPress}
           style={styles.fab}
+          accessibilityRole="button"
+          accessibilityLabel="Create new capsule"
         >
           <View style={styles.fabRing} />
           <Ionicons name="add" size={28} color={colors.primaryFg} />
@@ -116,35 +128,45 @@ export function BottomNavigation({ activeTab, onTabChange }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors, isDark) => StyleSheet.create({
   container: {
     position: "absolute",
     bottom: 0,
-    left: 16,
-    right: 16,
+    left: 0,
+    right: 0,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    paddingHorizontal: 12,
-    paddingBottom: 20,
+    paddingHorizontal: 28,
   },
   navBar: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    height: 60,
+    height: 56,
     paddingHorizontal: 8,
-    borderRadius: 44,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.09)",
+    borderRadius: 54,
+    borderWidth: isDark ? 1 : 0,
+    borderColor: isDark ? "rgba(255,255,255,0.12)" : "transparent",
     overflow: "hidden",
-    backgroundColor: colors.secondaryBackground,
+    backgroundColor: isDark ? "rgba(26, 24, 38, 0.55)" : "rgba(255, 255, 255, 0.21)",
   },
   tab: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 8,
+  },
+  tabLabel: {
+    fontSize: 9,
+    lineHeight: 13,
+    color: colors.mutedFg,
+    marginTop: 3,
+    letterSpacing: 0.3,
+    fontWeight: "500",
+  },
+  tabLabelActive: {
+    color: colors.foreground,
   },
   activeDot: {
     position: "absolute",
@@ -165,11 +187,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: colors.primary,
-    shadowOpacity: 0.45,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 8,
   },
   fabRing: {
     position: "absolute",
@@ -179,6 +196,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     borderRadius: 32,
     borderWidth: 1.5,
-    borderColor: "rgba(255,255,255,0.22)",
+    borderColor: isDark ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.35)",
   },
 });

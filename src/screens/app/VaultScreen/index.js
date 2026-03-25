@@ -1,86 +1,93 @@
 import {
   View,
   Text,
+  Image,
   ScrollView,
   Pressable,
   StyleSheet,
   ActivityIndicator,
   RefreshControl,
 } from "react-native";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
-import { colors, ROUTES, fonts } from "@/constants";
+import { ROUTES, fonts } from "@/constants";
+import { useTheme } from "@/hooks/useTheme";
 import { getCapsules } from "@/services/capsules";
 import { normalizeCapsule } from "@/utils/normalize";
 import { useAuth } from "@/hooks/useAuth";
 import { getDaysUntil, formatDate } from "@/utils/date";
 import { useAppForeground } from "@/hooks/useAppForeground";
+import { vaultBus } from "@/utils/vaultBus";
 
-const TYPE_COLORS = {
-  MESSAGE: { bg: `${colors.primary}20`, text: colors.primary },
-  MEDIA: { bg: "rgba(150,100,200,0.2)", text: "#9664C8" },
-  MOMENT: { bg: `${colors.primary}30`, text: colors.primary },
-  COLLECTIVE: { bg: "rgba(100,160,220,0.2)", text: "#64A0DC" },
-};
 
-function StatCard({ value, label }) {
-  return (
+function StatCard({ value, label, unit, onPress, styles }) {
+  const inner = (
     <View style={styles.statCard}>
-      <Text style={styles.statValue}>{value}</Text>
+      <Text style={styles.statValue} adjustsFontSizeToFit numberOfLines={1}>
+        {value}{unit ? <Text style={styles.statUnit}> {unit}</Text> : null}
+      </Text>
       <Text style={styles.statLabel}>{label}</Text>
     </View>
   );
+  if (onPress) return <Pressable onPress={onPress} style={styles.statCardWrap} accessibilityRole="button" accessibilityLabel={`View ${label.toLowerCase()} capsule`}>{inner}</Pressable>;
+  return <View style={styles.statCardWrap}>{inner}</View>;
 }
 
-function CapsuleCard({ capsule, onPress }) {
+function CapsuleCard({ capsule, onPress, styles }) {
+  const { colors } = useTheme();
   const isUnlocked = capsule.status === "unlocked";
-  const daysUntil = getDaysUntil(capsule.unlocksAt);
-  const typeColor = TYPE_COLORS[capsule.type] || TYPE_COLORS.MESSAGE;
 
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.capsuleCard,
-        isUnlocked && styles.capsuleCardUnlocked,
-        pressed && { opacity: 0.85 },
-      ]}
+      style={({ pressed }) => [styles.capsuleCard, pressed && { opacity: 0.85 }]}
+      accessibilityRole="button"
+      accessibilityLabel={capsule.title}
     >
-      {/* Left: lock icon */}
-      <View style={[styles.capsuleLockIcon, isUnlocked && styles.capsuleLockIconUnlocked]}>
-        <Ionicons
-          name={isUnlocked ? "lock-open-outline" : "lock-closed-outline"}
-          size={18}
-          color={isUnlocked ? colors.primary : colors.mutedFg}
-        />
-      </View>
-
-      {/* Center: info */}
-      <View style={styles.capsuleInfo}>
-        <Text style={styles.capsuleTitle} numberOfLines={1}>
-          {capsule.title}
-        </Text>
-        <View style={styles.capsuleMeta}>
-          <Text style={styles.capsuleFrom}>from {capsule.from}</Text>
-          <Text style={styles.capsuleDot}>·</Text>
-          <Text style={styles.capsuleDate}>{formatDate(capsule.unlocksAt)}</Text>
+      {/* Header: avatar + sender info + status badge */}
+      <View style={styles.cardHeader}>
+        <View style={styles.cardAvatar}>
+          {capsule.fromAvatar ? (
+            <Image source={{ uri: capsule.fromAvatar }} style={styles.cardAvatarImg} />
+          ) : (
+            <Text style={styles.cardAvatarText}>{capsule.fromInitial}</Text>
+          )}
         </View>
-      </View>
-
-      {/* Right: type tag + days */}
-      <View style={styles.capsuleRight}>
-        <View style={[styles.typeTag, { backgroundColor: typeColor.bg }]}>
-          <Text style={[styles.typeTagText, { color: typeColor.text }]}>{capsule.type}</Text>
+        <View style={styles.cardSenderInfo}>
+          <Text style={styles.cardSenderName}>From {capsule.from}</Text>
+          {capsule.sealedAt ? (
+            <Text style={styles.cardSealedDate}>Sealed {formatDate(capsule.sealedAt)}</Text>
+          ) : null}
         </View>
-        {isUnlocked ? (
-          <Text style={styles.tapReveal}>Tap to reveal</Text>
-        ) : (
-          <Text style={styles.daysText}>
-            <Text style={styles.daysNumber}>{daysUntil}</Text>
-            <Text style={styles.daysLabel}> d</Text>
+        <View style={[styles.statusBadge, !isUnlocked && styles.statusBadgeSealed]}>
+          <Ionicons
+            name={isUnlocked ? "lock-open-outline" : "lock-closed-outline"}
+            size={11}
+            color={isUnlocked ? colors.mutedFg : colors.primary}
+          />
+          <Text style={[styles.statusBadgeText, !isUnlocked && styles.statusBadgeTextSealed]}>
+            {isUnlocked ? "Unlocked" : "Sealed"}
           </Text>
-        )}
+        </View>
+      </View>
+
+      {/* Title */}
+      <Text style={styles.capsuleTitle} numberOfLines={2}>{capsule.title}</Text>
+
+      {/* Description */}
+      {!!capsule.description && (
+        <Text style={styles.capsuleDescription} numberOfLines={2}>{capsule.description}</Text>
+      )}
+
+      {/* Footer: date pill + type */}
+      <View style={styles.cardFooter}>
+        <View style={styles.datePill}>
+          <Text style={styles.datePillText}>
+            {isUnlocked ? "Unlocked " : "Unlocks "}{formatDate(capsule.unlocksAt)}
+          </Text>
+        </View>
+        <Text style={styles.typeLabel}>{capsule.type}</Text>
       </View>
     </Pressable>
   );
@@ -89,6 +96,8 @@ function CapsuleCard({ capsule, onPress }) {
 export default function VaultScreen() {
   const navigation = useNavigation();
   const { user } = useAuth();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [capsules, setCapsules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -99,7 +108,10 @@ export default function VaultScreen() {
       if (isRefresh) setRefreshing(true);
       setError(null);
       const data = await getCapsules();
-      setCapsules(data.map((c) => normalizeCapsule(c, user?.id)));
+      const sorted = [...data].sort(
+        (a, b) => new Date(b.sealed_at || b.created_at || 0) - new Date(a.sealed_at || a.created_at || 0)
+      );
+      setCapsules(sorted.map((c) => normalizeCapsule(c, user?.id)));
     } catch (err) {
       setError("Could not load capsules");
     } finally {
@@ -115,11 +127,24 @@ export default function VaultScreen() {
   // Re-fetch when app comes back to foreground
   useAppForeground(() => loadCapsules());
 
+  // Prepend newly created capsules immediately
+  useEffect(() => {
+    return vaultBus.on((newCapsule) => {
+      setCapsules((prev) => [newCapsule, ...prev]);
+    });
+  }, []);
+
   const sealed = capsules.filter((c) => c.status === "sealed");
   const unlocked = capsules.filter((c) => c.status === "unlocked");
   const nextOpenDays = sealed.length
     ? Math.min(...sealed.map((c) => getDaysUntil(c.unlocksAt)))
     : 0;
+  const nextOpenCapsule = sealed.length
+    ? sealed.reduce((nearest, c) => {
+        const t = new Date(c.unlocksAt).getTime();
+        return t < new Date(nearest.unlocksAt).getTime() ? c : nearest;
+      })
+    : null;
 
   // Auto-reload when the nearest sealed capsule's unlock time arrives
   useEffect(() => {
@@ -158,9 +183,15 @@ export default function VaultScreen() {
     >
       {/* Stats Row */}
       <View style={styles.statsRow}>
-        <StatCard value={sealed.length} label="SEALED" />
-        <StatCard value={unlocked.length} label="UNLOCKED" />
-        <StatCard value={nextOpenDays} label="NEXT OPEN" />
+        <StatCard value={sealed.length} label="SEALED" styles={styles} />
+        <StatCard value={unlocked.length} label="UNLOCKED" styles={styles} />
+        <StatCard
+          value={nextOpenDays}
+          unit="days"
+          label="NEXT OPEN"
+          onPress={nextOpenCapsule ? () => navigation.navigate(ROUTES.LOCKED_CAPSULE, { capsule: nextOpenCapsule }) : undefined}
+          styles={styles}
+        />
       </View>
 
       {/* Capsules Section */}
@@ -187,6 +218,7 @@ export default function VaultScreen() {
               key={capsule.id}
               capsule={capsule}
               onPress={() => handleCapsulePress(capsule)}
+              styles={styles}
             />
           ))}
         </View>
@@ -195,23 +227,25 @@ export default function VaultScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
   },
   content: {
     paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 16,
+    paddingTop: 0,
+    paddingBottom: 120,
   },
   statsRow: {
     flexDirection: "row",
     gap: 10,
     marginBottom: 28,
   },
-  statCard: {
+  statCardWrap: {
     flex: 1,
+  },
+  statCard: {
     backgroundColor: colors.card,
     borderRadius: 16,
     paddingVertical: 16,
@@ -225,8 +259,14 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: colors.foreground,
   },
+  statUnit: {
+    fontSize: 14,
+    fontWeight: "400",
+    color: colors.mutedFg,
+  },
   statLabel: {
     fontSize: 9,
+    lineHeight: 13,
     color: colors.mutedFg,
     letterSpacing: 1.2,
     textTransform: "uppercase",
@@ -240,103 +280,125 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 10,
+    lineHeight: 14,
     color: colors.mutedFg,
     letterSpacing: 2,
     textTransform: "uppercase",
     fontWeight: "500",
   },
   capsuleList: {
-    gap: 8,
+    gap: 12,
   },
   capsuleCard: {
-    flexDirection: "row",
-    alignItems: "center",
     backgroundColor: colors.card,
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 16,
     borderWidth: 1,
     borderColor: colors.border,
+    gap: 12,
   },
-  capsuleCardUnlocked: {
-    borderColor: `${colors.primary}45`,
-    backgroundColor: `${colors.primary}07`,
-    shadowColor: colors.primary,
-    shadowOpacity: 0.28,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 6,
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
-  capsuleLockIcon: {
+  cardAvatarImg: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+  },
+  cardAvatar: {
     width: 36,
     height: 36,
     borderRadius: 18,
     backgroundColor: colors.secondaryBackground,
+    borderWidth: 1.5,
+    borderColor: `${colors.primary}40`,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 12,
   },
-  capsuleLockIconUnlocked: {
-    backgroundColor: `${colors.primary}18`,
-    shadowColor: colors.primary,
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
+  cardAvatarText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.foreground,
   },
-  capsuleInfo: {
+  cardSenderInfo: {
     flex: 1,
-    gap: 4,
+    gap: 2,
+  },
+  cardSenderName: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: colors.foreground,
+  },
+  cardSealedDate: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: colors.mutedFg,
+  },
+  statusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: colors.secondaryBackground,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  statusBadgeText: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: colors.mutedFg,
+    fontWeight: "500",
+  },
+  statusBadgeSealed: {
+    backgroundColor: `${colors.primary}12`,
+    borderColor: `${colors.primary}40`,
+  },
+  statusBadgeTextSealed: {
+    color: colors.primary,
+    fontWeight: "600",
   },
   capsuleTitle: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: "300",
     color: colors.foreground,
     fontFamily: fonts.serif,
+    lineHeight: 23,
   },
-  capsuleMeta: {
+  capsuleDescription: {
+    fontSize: 12,
+    color: colors.mutedFg,
+    lineHeight: 18,
+    marginTop: -4,
+  },
+  cardFooter: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    justifyContent: "space-between",
   },
-  capsuleFrom: {
-    fontSize: 12,
-    color: colors.mutedFg,
+  datePill: {
+    backgroundColor: `${colors.primary}15`,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: `${colors.primary}35`,
   },
-  capsuleDot: {
-    fontSize: 12,
-    color: colors.mutedFg,
-  },
-  capsuleDate: {
-    fontSize: 12,
-    color: colors.mutedFg,
-  },
-  capsuleRight: {
-    alignItems: "flex-end",
-    gap: 6,
-    marginLeft: 8,
-  },
-  typeTag: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  typeTagText: {
-    fontSize: 9,
-    fontWeight: "700",
-    letterSpacing: 0.5,
-  },
-  daysText: {
-    fontSize: 13,
-  },
-  daysNumber: {
-    color: colors.foreground,
-    fontWeight: "600",
-  },
-  daysLabel: {
-    color: colors.mutedFg,
+  datePillText: {
     fontSize: 11,
+    lineHeight: 16,
+    color: `${colors.primary}CC`,
+    fontWeight: "500",
   },
-  tapReveal: {
-    fontSize: 11,
-    color: colors.primary,
+  typeLabel: {
+    fontSize: 10,
+    lineHeight: 14,
+    color: colors.mutedFg,
+    letterSpacing: 1,
+    textTransform: "uppercase",
     fontWeight: "500",
   },
   emptyBox: {
@@ -359,6 +421,7 @@ const styles = StyleSheet.create({
   },
   retryText: {
     fontSize: 12,
+    lineHeight: 17,
     color: colors.primary,
   },
 });

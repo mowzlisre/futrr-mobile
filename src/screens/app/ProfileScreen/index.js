@@ -3,6 +3,7 @@ import {
   Text,
   Pressable,
   ScrollView,
+  RefreshControl,
   StyleSheet,
   ActivityIndicator,
   Image,
@@ -11,20 +12,21 @@ import {
   Modal,
   Platform,
 } from "react-native";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
-import { colors, ROUTES, fonts } from "@/constants";
+import { ROUTES, fonts } from "@/constants";
 import { useAuth } from "@/hooks/useAuth";
+import { useTheme } from "@/hooks/useTheme";
 import { getProfile, uploadAvatar } from "@/services/user";
-import { getCapsules } from "@/services/capsules";
+import { getCapsules, getPinnedCapsules } from "@/services/capsules";
 import { normalizeCapsule } from "@/utils/normalize";
 import { formatDate } from "@/utils/date";
 
 // ─── Pinned capsule card ───────────────────────────────────────────────────────
 
-function PinnedCard({ capsule, onPress }) {
+function PinnedCard({ capsule, onPress, colors, styles }) {
   const isUnlocked = capsule.status === "unlocked";
   return (
     <Pressable
@@ -46,14 +48,14 @@ function PinnedCard({ capsule, onPress }) {
   );
 }
 
-// ─── Stat button (tappable) ────────────────────────────────────────────────────
+// ─── Stat display ─────────────────────────────────────────────────────────────
 
-function StatItem({ value, label, onPress }) {
+function StatItem({ value, label, styles }) {
   return (
-    <Pressable style={styles.statItem} onPress={onPress}>
+    <View style={styles.statItem}>
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
-    </Pressable>
+    </View>
   );
 }
 
@@ -61,28 +63,50 @@ function StatItem({ value, label, onPress }) {
 
 export default function ProfileScreen() {
   const { user } = useAuth();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [profile, setProfile] = useState(null);
   const [capsules, setCapsules] = useState([]);
+  const [pinnedCapsules, setPinnedCapsules] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [viewingAvatar, setViewingAvatar] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [profileData, capsulesData] = await Promise.all([
+      const [profileData, capsulesData, pinnedData] = await Promise.all([
         getProfile(),
         getCapsules(),
+        getPinnedCapsules(),
       ]);
       setProfile(profileData);
       if (profileData.avatar) setAvatarUrl(profileData.avatar);
       setCapsules(capsulesData.map((c) => normalizeCapsule(c, user?.id)));
+      setPinnedCapsules(pinnedData.map((c) => normalizeCapsule(c, user?.id)));
     } catch {
       // fall back silently
     } finally {
       setLoading(false);
     }
+  }, [user?.id]);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const [profileData, capsulesData, pinnedData] = await Promise.all([
+        getProfile(),
+        getCapsules(),
+        getPinnedCapsules(),
+      ]);
+      setProfile(profileData);
+      if (profileData.avatar) setAvatarUrl(profileData.avatar);
+      setCapsules(capsulesData.map((c) => normalizeCapsule(c, user?.id)));
+      setPinnedCapsules(pinnedData.map((c) => normalizeCapsule(c, user?.id)));
+    } catch {}
+    setRefreshing(false);
   }, [user?.id]);
 
   useEffect(() => {
@@ -165,6 +189,9 @@ export default function ProfileScreen() {
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} />
+        }
       >
         {/* ── Avatar + name ── */}
         <View style={styles.avatarSection}>
@@ -194,11 +221,11 @@ export default function ProfileScreen() {
 
         {/* ── Instagram-style stats ── */}
         <View style={styles.statsRow}>
-          <StatItem value={followers} label="Followers" />
+          <StatItem value={followers} label="Followers" styles={styles} />
           <View style={styles.statDivider} />
-          <StatItem value={following} label="Following" />
+          <StatItem value={following} label="Following" styles={styles} />
           <View style={styles.statDivider} />
-          <StatItem value={capsulesCount} label="Capsules" />
+          <StatItem value={capsulesCount} label="Capsules" styles={styles} />
         </View>
 
         {/* ── Capsules section ── */}
@@ -224,6 +251,38 @@ export default function ProfileScreen() {
                 key={capsule.id}
                 capsule={capsule}
                 onPress={() => handleCapsulePress(capsule)}
+                colors={colors}
+                styles={styles}
+              />
+            ))}
+          </ScrollView>
+        )}
+
+        {/* ── Pinned capsules section ── */}
+        <View style={[styles.sectionHeader, { marginTop: 32 }]}>
+          <Text style={styles.sectionTitle}>PINNED TO PROFILE</Text>
+        </View>
+
+        {loading ? (
+          <ActivityIndicator color={colors.primary} style={{ marginTop: 24 }} />
+        ) : pinnedCapsules.length === 0 ? (
+          <View style={styles.emptyBox}>
+            <Ionicons name="pin-outline" size={32} color={colors.border} />
+            <Text style={styles.emptyText}>No pinned capsules</Text>
+          </View>
+        ) : (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.pinnedList}
+          >
+            {pinnedCapsules.map((capsule) => (
+              <PinnedCard
+                key={capsule.id}
+                capsule={capsule}
+                onPress={() => handleCapsulePress(capsule)}
+                colors={colors}
+                styles={styles}
               />
             ))}
           </ScrollView>
@@ -254,14 +313,14 @@ export default function ProfileScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
   },
   content: {
     paddingHorizontal: 20,
-    paddingBottom: 32,
+    paddingBottom: 160,
   },
   avatarSection: {
     alignItems: "center",
@@ -341,6 +400,7 @@ const styles = StyleSheet.create({
   },
   statLabel: {
     fontSize: 11,
+    lineHeight: 16,
     color: colors.mutedFg,
     marginTop: 3,
   },
@@ -355,6 +415,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 10,
+    lineHeight: 14,
     color: colors.mutedFg,
     letterSpacing: 2,
     textTransform: "uppercase",
@@ -393,6 +454,7 @@ const styles = StyleSheet.create({
   },
   pinnedDate: {
     fontSize: 10,
+    lineHeight: 14,
     color: colors.mutedFg,
   },
   emptyBox: {
@@ -403,6 +465,12 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 14,
     color: colors.mutedFg,
+  },
+  emptySubtext: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: colors.mutedFg,
+    textAlign: "center",
   },
   // ── Avatar viewer modal ──
   avatarViewOverlay: {

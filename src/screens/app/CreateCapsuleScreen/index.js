@@ -5,6 +5,7 @@ import {
   StyleSheet,
   TextInput,
   ScrollView,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Alert,
@@ -12,8 +13,9 @@ import {
   FlatList,
   ActivityIndicator,
   Share,
+  Animated,
 } from "react-native";
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import * as ImagePicker from "expo-image-picker";
 import {
@@ -26,15 +28,87 @@ import {
   setAudioModeAsync,
 } from "expo-audio";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import { colors } from "@/constants";
+import { useTheme } from "@/hooks/useTheme";
 import * as Location from "expo-location";
 import { getDaysUntil } from "@/utils/date";
 import { createCapsule, addCapsuleContent } from "@/services/capsules";
 import { searchUsers } from "@/services/user";
 import { generatePassphrase, storePassphrase } from "@/utils/passphrase";
+import { useAuth } from "@/hooks/useAuth";
+import { normalizeCapsule } from "@/utils/normalize";
+import { vaultBus } from "@/utils/vaultBus";
+import { hapticSuccess, hapticError } from "@/utils/haptics";
+
+// ─── RecordingWaveform ────────────────────────────────────────────────────────
+
+const NUM_BARS = 24;
+const BAR_MIN_H = 3;
+
+function RecordingWaveform({ isActive }) {
+  const { colors } = useTheme();
+  const animVals = useRef(
+    Array.from({ length: NUM_BARS }, () => new Animated.Value(BAR_MIN_H))
+  ).current;
+
+  useEffect(() => {
+    if (isActive) {
+      const anims = animVals.map((val, i) => {
+        const maxH = BAR_MIN_H + 4 + (i % 5) * 7; // 7..31
+        const up = Animated.timing(val, {
+          toValue: maxH,
+          duration: 300 + (i % 4) * 80,
+          useNativeDriver: false,
+        });
+        const down = Animated.timing(val, {
+          toValue: BAR_MIN_H,
+          duration: 300 + (i % 4) * 80,
+          useNativeDriver: false,
+        });
+        return Animated.loop(Animated.sequence([up, down]));
+      });
+      Animated.stagger(25, anims).start();
+      return () => {
+        anims.forEach((a) => a.stop());
+        animVals.forEach((v) => v.setValue(BAR_MIN_H));
+      };
+    } else {
+      animVals.forEach((v) => v.setValue(BAR_MIN_H));
+    }
+  }, [isActive]);
+
+  return (
+    <View style={waveStyles.container}>
+      {animVals.map((val, i) => (
+        <Animated.View
+          key={i}
+          style={[
+            waveStyles.bar,
+            {
+              height: val,
+              backgroundColor: isActive ? colors.primary : `${colors.primary}55`,
+            },
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+
+const waveStyles = StyleSheet.create({
+  container: {
+    flexDirection: "row",
+    alignItems: "center",
+    height: 44,
+    gap: 3,
+  },
+  bar: {
+    width: 3,
+    borderRadius: 2,
+  },
+});
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -69,6 +143,8 @@ function formatSeconds(secs) {
 // ─── TypeSelector ─────────────────────────────────────────────────────────────
 
 function TypeSelector({ activeType, onSelect }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <View style={styles.typeRow}>
       {TYPES.map((t) => (
@@ -99,6 +175,8 @@ function TypeSelector({ activeType, onSelect }) {
 // ─── PhotoCapture ─────────────────────────────────────────────────────────────
 
 function PhotoCapture({ photos, video, photoMode, onPhotosChange, onVideoChange, onModeChange }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const canAddMore = photoMode === "photos" && photos.length < MAX_PHOTOS;
 
   const launchCamera = async () => {
@@ -252,10 +330,13 @@ function PhotoCapture({ photos, video, photoMode, onPhotosChange, onVideoChange,
 // ─── VoiceRecorder ────────────────────────────────────────────────────────────
 
 function VoiceRecorder({ recordedUri, onRecorded }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   // Hooks must be at top level — recorder and player are always created
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recState = useAudioRecorderState(recorder, 500);
-  const player = useAudioPlayer(recordedUri ? { uri: recordedUri } : null);
+  // Always start with null so the player doesn't try to load before we have a URI
+  const player = useAudioPlayer(null);
   const playerStatus = useAudioPlayerStatus(player);
 
   const isRecording = recState.isRecording ?? false;
@@ -270,7 +351,7 @@ function VoiceRecorder({ recordedUri, onRecorded }) {
     }
   }, [duration, isRecording]);
 
-  // When recordedUri changes (new recording), load it into the player
+  // When recordedUri becomes available, load it into the player
   useEffect(() => {
     if (recordedUri) {
       player.replace({ uri: recordedUri });
@@ -278,20 +359,34 @@ function VoiceRecorder({ recordedUri, onRecorded }) {
   }, [recordedUri]);
 
   const startRecording = async () => {
-    const { granted } = await requestRecordingPermissionsAsync();
-    if (!granted) {
-      Alert.alert("Permission required", "Microphone access is needed to record audio.");
-      return;
+    try {
+      const { granted } = await requestRecordingPermissionsAsync();
+      if (!granted) {
+        Alert.alert("Permission required", "Microphone access is needed to record audio.");
+        return;
+      }
+      // expo-audio 1.x uses allowsRecording / playsInSilentMode (not the expo-av iOS-suffix names)
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+    } catch (err) {
+      Alert.alert("Recording error", "Could not start recording. Please try again.");
     }
-    await setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-    await recorder.prepareToRecordAsync();
-    recorder.record();
   };
 
   const stopRecording = async () => {
-    await recorder.stop();
-    await setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
-    onRecorded(recorder.uri);
+    try {
+      await recorder.stop();
+      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+      const uri = recorder.uri;
+      if (uri) {
+        onRecorded(uri);
+      } else {
+        Alert.alert("Recording error", "No audio was captured. Please try again.");
+      }
+    } catch (err) {
+      Alert.alert("Recording error", "Could not save the recording. Please try again.");
+    }
   };
 
   const playback = () => {
@@ -315,28 +410,11 @@ function VoiceRecorder({ recordedUri, onRecorded }) {
     <View style={styles.voiceContainer}>
       {!recordedUri ? (
         <>
-          {/* Timer ring */}
-          <View style={styles.voiceTimerRing}>
-            <View
-              style={[
-                styles.voiceTimerFill,
-                { opacity: isRecording ? 1 : 0.3 },
-              ]}
-            />
-            <Text style={styles.voiceTimerText}>
-              {isRecording ? formatSeconds(duration) : "00:00"}
-            </Text>
-            <Text style={styles.voiceTimerMax}>/ 01:00</Text>
-          </View>
-
-          {/* Progress bar */}
-          {isRecording && (
-            <View style={styles.voiceProgressBar}>
-              <View
-                style={[styles.voiceProgressFill, { width: `${progress * 100}%` }]}
-              />
-            </View>
-          )}
+          {/* Animated waveform + timer */}
+          <RecordingWaveform isActive={isRecording} />
+          <Text style={styles.voiceTimerText}>
+            {isRecording ? formatSeconds(duration) : "00:00"}
+          </Text>
 
           {/* Record / Stop button */}
           <Pressable
@@ -367,11 +445,9 @@ function VoiceRecorder({ recordedUri, onRecorded }) {
               color={colors.primaryFg}
             />
           </Pressable>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.voicePlaybackLabel}>Voice note recorded</Text>
-            <Text style={styles.voicePlaybackSub}>
-              {formatSeconds(duration)} · Tap to preview
-            </Text>
+          <View style={{ flex: 1, gap: 6 }}>
+            <RecordingWaveform isActive={playing} />
+            <Text style={styles.voicePlaybackSub}>{formatSeconds(duration)} · Tap to preview</Text>
           </View>
           <Pressable onPress={discard} style={styles.discardBtn}>
             <Ionicons name="trash-outline" size={18} color={colors.mutedFg} />
@@ -385,6 +461,8 @@ function VoiceRecorder({ recordedUri, onRecorded }) {
 // ─── SendToModal ──────────────────────────────────────────────────────────────
 
 function SendToModal({ visible, recipient, onSelect, onDismiss }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -527,13 +605,25 @@ function SendToModal({ visible, recipient, onSelect, onDismiss }) {
 // ─── main screen ─────────────────────────────────────────────────────────────
 
 export default function CreateCapsuleScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const navigation = useNavigation();
+  const route = useRoute();
+  const { user } = useAuth();
+
+  // Event participation context (passed from EventDetailScreen)
+  const event = route.params?.event || null;
 
   // Form state
   const [type, setType] = useState("MESSAGE");
   const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
   const [message, setMessage] = useState("");
-  const [unlockDate, setUnlockDate] = useState(DEFAULT_DATE);
+  const [unlockDate, setUnlockDate] = useState(
+    event?.is_time_locked && event?.unlock_at
+      ? new Date(event.unlock_at)
+      : DEFAULT_DATE
+  );
   const [recipient, setRecipient] = useState({
     type: "myself",
     label: "Myself",
@@ -700,9 +790,11 @@ export default function CreateCapsuleScreen() {
 
       const capsule = await createCapsule({
         title: title.trim(),
+        description: description.trim(),
         unlock_at: unlockDate.toISOString(),
         is_public: isPublic,
         passphrase_hint: passphraseHint.trim(),
+        ...(event ? { event_id: event.id } : {}),
         ...(showInAtlas && atlasLocation
           ? {
               latitude: atlasLocation.lat,
@@ -711,6 +803,9 @@ export default function CreateCapsuleScreen() {
             }
           : {}),
       });
+
+      // Push to vault immediately
+      vaultBus.emit(normalizeCapsule(capsule, user?.id));
 
       // Text is always required and uploaded for every capsule type
       await addCapsuleContent(capsule.id, {
@@ -738,6 +833,7 @@ export default function CreateCapsuleScreen() {
         });
       }
 
+      hapticSuccess();
       if (generatedPassphrase) {
         await storePassphrase(capsule.id, generatedPassphrase);
         setRevealedPassphrase(generatedPassphrase);
@@ -745,6 +841,7 @@ export default function CreateCapsuleScreen() {
         navigation.goBack();
       }
     } catch (err) {
+      hapticError();
       const msg =
         err?.response?.data?.error || err?.error || "Failed to seal capsule";
       Alert.alert("Error", msg);
@@ -759,18 +856,29 @@ export default function CreateCapsuleScreen() {
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} style={styles.closeBtn}>
+        <Pressable onPress={() => navigation.goBack()} style={styles.closeBtn} accessibilityRole="button" accessibilityLabel="Close">
           <Ionicons name="close" size={22} color={colors.foreground} />
         </Pressable>
-        <Text style={styles.headerTitle}>SEAL A MOMENT</Text>
+        <Text style={styles.headerTitle}>{event ? "PARTICIPATE" : "SEAL A MOMENT"}</Text>
         <View style={{ width: 40 }} />
       </View>
 
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
+        {/* Event pill (when participating in an event) */}
+        {event && (
+          <View style={styles.eventPill}>
+            <Ionicons name="calendar-outline" size={14} color={colors.primary} />
+            <Text style={styles.eventPillText} numberOfLines={1}>
+              {event.title}
+            </Text>
+          </View>
+        )}
+
         {/* Type selector */}
         <TypeSelector activeType={type} onSelect={handleTypeChange} />
 
@@ -784,6 +892,25 @@ export default function CreateCapsuleScreen() {
             value={title}
             onChangeText={setTitle}
             autoCapitalize="sentences"
+            accessibilityLabel="Name this moment"
+          />
+        </View>
+
+        {/* Description */}
+        <View style={styles.field}>
+          <Text style={styles.fieldLabel}>DESCRIPTION (OPTIONAL)</Text>
+          <TextInput
+            style={styles.descriptionInput}
+            placeholder="A short teaser visible before this capsule opens..."
+            placeholderTextColor={colors.mutedFg}
+            value={description}
+            onChangeText={setDescription}
+            multiline
+            numberOfLines={2}
+            textAlignVertical="top"
+            autoCapitalize="sentences"
+            maxLength={300}
+            accessibilityLabel="A short teaser visible before this capsule opens"
           />
         </View>
 
@@ -804,6 +931,7 @@ export default function CreateCapsuleScreen() {
             numberOfLines={4}
             textAlignVertical="top"
             autoCapitalize="sentences"
+            accessibilityLabel="Hey future me, I hope by the time you read this"
           />
         </View>
 
@@ -831,7 +959,8 @@ export default function CreateCapsuleScreen() {
           </View>
         )}
 
-        {/* Unlock Date */}
+        {/* Unlock Date — hidden when participating in an event (event controls unlock) */}
+        {!event && (
         <View style={styles.field}>
           <Text style={styles.fieldLabel}>UNLOCK DATE</Text>
           <Pressable onPress={openDatePicker} style={styles.selectRow}>
@@ -844,8 +973,10 @@ export default function CreateCapsuleScreen() {
             </View>
           </Pressable>
         </View>
+        )}
 
         {/* Unlock Time */}
+        {!event && (
         <View style={styles.field}>
           <Text style={styles.fieldLabel}>UNLOCK TIME</Text>
           <Pressable onPress={openTimePicker} style={styles.selectRow}>
@@ -855,6 +986,7 @@ export default function CreateCapsuleScreen() {
             </Text>
           </Pressable>
         </View>
+        )}
 
         {/* ── Settings Accordion (Encryption + Visibility + Atlas) ─────────── */}
         <View style={styles.accordionCard}>
@@ -1042,6 +1174,8 @@ export default function CreateCapsuleScreen() {
           onPress={handleSeal}
           disabled={sealing}
           style={styles.sealButton}
+          accessibilityRole="button"
+          accessibilityLabel="Seal capsule"
         >
           <LinearGradient
             colors={[colors.primary, "#D4924A", colors.secondary]}
@@ -1055,6 +1189,7 @@ export default function CreateCapsuleScreen() {
           </LinearGradient>
         </Pressable>
       </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* ── Date picker ─────────────────────────────────────────────────────── */}
 
@@ -1181,10 +1316,28 @@ export default function CreateCapsuleScreen() {
 
 // ─── styles ──────────────────────────────────────────────────────────────────
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  eventPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 7,
+    backgroundColor: `${colors.primary}15`,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: `${colors.primary}35`,
+  },
+  eventPillText: {
+    fontSize: 13,
+    color: colors.primary,
+    fontWeight: "600",
+    maxWidth: 220,
   },
   header: {
     flexDirection: "row",
@@ -1207,6 +1360,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 12,
+    lineHeight: 17,
     color: colors.foreground,
     fontWeight: "600",
     letterSpacing: 2,
@@ -1240,6 +1394,7 @@ const styles = StyleSheet.create({
   },
   typeLabel: {
     fontSize: 10,
+    lineHeight: 14,
     color: colors.mutedFg,
     fontWeight: "700",
     letterSpacing: 1,
@@ -1255,6 +1410,7 @@ const styles = StyleSheet.create({
   },
   fieldLabel: {
     fontSize: 10,
+    lineHeight: 14,
     color: colors.mutedFg,
     letterSpacing: 1.5,
     fontWeight: "500",
@@ -1267,6 +1423,18 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     color: colors.foreground,
     fontSize: 15,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  descriptionInput: {
+    backgroundColor: colors.card,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    color: colors.foreground,
+    fontSize: 14,
+    lineHeight: 21,
+    minHeight: 72,
     borderWidth: 1,
     borderColor: colors.border,
   },
@@ -1305,6 +1473,7 @@ const styles = StyleSheet.create({
   },
   recipientAvatarText: {
     fontSize: 12,
+    lineHeight: 17,
     fontWeight: "700",
     color: colors.foreground,
   },
@@ -1321,6 +1490,7 @@ const styles = StyleSheet.create({
   },
   daysBadgeText: {
     fontSize: 12,
+    lineHeight: 17,
     color: colors.primary,
     fontWeight: "600",
   },
@@ -1354,6 +1524,7 @@ const styles = StyleSheet.create({
   },
   modeBtnText: {
     fontSize: 12,
+    lineHeight: 17,
     color: colors.mutedFg,
     fontWeight: "500",
   },
@@ -1397,6 +1568,7 @@ const styles = StyleSheet.create({
   },
   cameraAddText: {
     fontSize: 10,
+    lineHeight: 14,
     color: colors.mutedFg,
     fontWeight: "500",
     textAlign: "center",
@@ -1408,6 +1580,7 @@ const styles = StyleSheet.create({
   },
   maxReachedText: {
     fontSize: 11,
+    lineHeight: 16,
     color: colors.mutedFg,
   },
   videoRecordBtn: {
@@ -1432,6 +1605,7 @@ const styles = StyleSheet.create({
   },
   videoHint: {
     fontSize: 10,
+    lineHeight: 14,
     color: colors.mutedFg,
     letterSpacing: 0.5,
   },
@@ -1465,6 +1639,7 @@ const styles = StyleSheet.create({
   },
   voiceTimerMax: {
     fontSize: 11,
+    lineHeight: 16,
     color: colors.mutedFg,
   },
   voiceProgressBar: {
@@ -1493,11 +1668,12 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   recordBtnActive: {
-    backgroundColor: "#c0392b",
-    shadowColor: "#c0392b",
+    backgroundColor: colors.errorStrong,
+    shadowColor: colors.errorStrong,
   },
   voiceHint: {
     fontSize: 12,
+    lineHeight: 17,
     color: colors.mutedFg,
   },
   voicePlayback: {
@@ -1521,6 +1697,7 @@ const styles = StyleSheet.create({
   },
   voicePlaybackSub: {
     fontSize: 12,
+    lineHeight: 17,
     color: colors.mutedFg,
     marginTop: 2,
   },
@@ -1551,6 +1728,7 @@ const styles = StyleSheet.create({
   },
   accordionHeaderLabel: {
     fontSize: 10,
+    lineHeight: 14,
     color: colors.mutedFg,
     letterSpacing: 1.5,
     fontWeight: "500",
@@ -1561,17 +1739,20 @@ const styles = StyleSheet.create({
     backgroundColor: colors.secondaryBackground,
     borderRadius: 8,
     padding: 2,
+    alignSelf: "flex-start",
   },
   encToggleBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 5,
+    paddingHorizontal: 20,
+    paddingVertical: 6,
     borderRadius: 6,
+    alignItems: "center",
   },
   encToggleBtnActive: {
     backgroundColor: colors.primary,
   },
   encToggleText: {
     fontSize: 12,
+    lineHeight: 17,
     color: colors.mutedFg,
     fontWeight: "500",
   },
@@ -1644,6 +1825,7 @@ const styles = StyleSheet.create({
   },
   settingsSummaryText: {
     fontSize: 11,
+    lineHeight: 16,
     color: colors.mutedFg,
   },
   settingsSection: {
@@ -1656,14 +1838,14 @@ const styles = StyleSheet.create({
   },
   settingsSectionLabel: {
     fontSize: 10,
+    lineHeight: 14,
     color: colors.mutedFg,
     letterSpacing: 1.5,
     fontWeight: "500",
     textTransform: "uppercase",
   },
   settingsDivider: {
-    height: 1,
-    backgroundColor: colors.border,
+    height: 16,
   },
   passphraseSection: {
     gap: 8,
@@ -1695,11 +1877,13 @@ const styles = StyleSheet.create({
   },
   atlasSubLabel: {
     fontSize: 12,
+    lineHeight: 17,
     color: colors.mutedFg,
     marginTop: 2,
   },
   atlasLocationName: {
     fontSize: 12,
+    lineHeight: 17,
     color: colors.primary,
     marginTop: 2,
   },
@@ -1728,6 +1912,7 @@ const styles = StyleSheet.create({
   },
   warningText: {
     fontSize: 12,
+    lineHeight: 17,
     color: colors.mutedFg,
   },
   sealButton: {
@@ -1781,6 +1966,7 @@ const styles = StyleSheet.create({
   },
   iosPickerTitle: {
     fontSize: 11,
+    lineHeight: 16,
     color: colors.mutedFg,
     letterSpacing: 2,
     fontWeight: "600",
@@ -1813,6 +1999,7 @@ const styles = StyleSheet.create({
   },
   sendToTitle: {
     fontSize: 11,
+    lineHeight: 16,
     color: colors.mutedFg,
     letterSpacing: 2,
     fontWeight: "600",
@@ -1834,6 +2021,7 @@ const styles = StyleSheet.create({
   },
   sendToOptionSub: {
     fontSize: 11,
+    lineHeight: 16,
     color: colors.mutedFg,
     marginTop: 1,
   },
@@ -1871,6 +2059,7 @@ const styles = StyleSheet.create({
   },
   sendToDividerText: {
     fontSize: 11,
+    lineHeight: 16,
     color: colors.mutedFg,
     letterSpacing: 0.5,
   },
@@ -1974,6 +2163,7 @@ const styles = StyleSheet.create({
   },
   revealTTL: {
     fontSize: 11,
+    lineHeight: 16,
     color: colors.mutedFg,
     textAlign: "center",
   },

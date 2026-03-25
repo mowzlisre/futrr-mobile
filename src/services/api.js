@@ -1,8 +1,9 @@
 import axios from "axios";
-import { getAccessToken, getRefreshToken, saveTokens } from "@/services/storage";
+import { getAccessToken, getRefreshToken, saveTokens, clearTokens } from "@/services/storage";
+import { authBus } from "@/utils/authBus";
 
 // const BASE_URL = "https://api.futrr.app/api";
-const BASE_URL = "http://192.168.1.184:8000/api";
+const BASE_URL = "http://localhost:8000/api";
 
 
 const api = axios.create({
@@ -59,6 +60,8 @@ api.interceptors.response.use(
         return api(original);
       } catch (err) {
         processQueue(err, null);
+        await clearTokens();
+        authBus.forceLogout();
         throw err;
       } finally {
         isRefreshing = false;

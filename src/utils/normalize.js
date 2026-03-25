@@ -13,32 +13,43 @@ const CAPSULE_TYPE_MAP = {
  */
 export function normalizeCapsule(c, currentUserId = null) {
   const isOwn = currentUserId && c.created_by === currentUserId;
-  const displayName = isOwn
-    ? "You"
-    : c.created_by_username || "futrr user";
+  const actualName = c.created_by_username || "futrr user";
+  const displayName = isOwn ? "You" : actualName;
 
   return {
     id: c.id,
     title: c.title || "Untitled capsule",
     description: c.description || "",
     from: displayName,
-    fromInitial: isOwn ? "Y" : displayName[0].toUpperCase(),
+    fromInitial: actualName[0].toUpperCase(),
     fromAvatar: c.created_by_avatar || null,
     type: CAPSULE_TYPE_MAP[c.capsule_type] || "MESSAGE",
     status: c.status, // "sealed" | "unlocked" | "expired" | "broken"
     unlocksAt: c.unlock_at,
     sealedAt: c.sealed_at,
     isFavorited: c.is_favorited ?? false,
+    isPinned: c.is_pinned ?? false,
     isPublic: c.is_public,
+    listedInAtlas: c.listed_in_atlas ?? true,
+    favoriteCount: c.favorite_count ?? 0,
+    pinCount: c.pin_count ?? 0,
     shareToken: c.share_token,
     latitude: c.latitude,
     longitude: c.longitude,
     locationName: c.location_name,
     contents: c.contents ?? [],
+    contentTypes: c.content_types ?? [],
     encryptionType: c.encryption_type ?? "auto", // "auto" | "self"
     passphraseHint: c.passphrase_hint || null,
     createdBy: c.created_by,
     _id: c.id,
+    recipients: (c.recipients ?? []).map((r) => ({
+      id: r.id,
+      userId: r.user_id ?? r.user ?? r.id,
+      username: r.username ?? r.user_username ?? "Unknown",
+      avatar: r.avatar ?? r.user_avatar ?? null,
+      initial: (r.username ?? r.user_username ?? "?")[0].toUpperCase(),
+    })),
   };
 }
 
@@ -54,6 +65,7 @@ export function normalizeNotification(n) {
     subtitle: n.body,
     time: formatRelativeTime(n.created_at),
     relatedCapsule: n.related_capsule,
+    relatedCapsuleTitle: n.related_capsule_title ?? null,
     relatedEvent: n.related_event,
     type: n.type,
   };

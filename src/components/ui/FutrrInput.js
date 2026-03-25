@@ -1,10 +1,12 @@
 import { TextInput, Animated, Easing, StyleSheet } from "react-native";
-import { useState, useRef, useEffect } from "react";
-import { colors } from "@/constants";
+import { useState, useRef, useEffect, useMemo } from "react";
+import { useTheme } from "@/hooks/useTheme";
 
 export function FutrrInput({ placeholder, value, onChangeText, secureTextEntry = false }) {
   const [focused, setFocused] = useState(false);
   const borderAnim = useRef(new Animated.Value(0)).current;
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   useEffect(() => {
     Animated.timing(borderAnim, {
@@ -44,7 +46,7 @@ export function FutrrInput({ placeholder, value, onChangeText, secureTextEntry =
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   inputWrapper: {
     borderRadius: 25,
     borderWidth: 1,

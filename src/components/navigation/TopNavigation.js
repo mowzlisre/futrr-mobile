@@ -1,7 +1,11 @@
 import { View, Text, StyleSheet } from "react-native";
-import { colors } from "@/constants";
+import { useMemo } from "react";
+import { useTheme } from "@/hooks/useTheme";
 
 export function TopNavigation({ activeTab, activeTitle, rightElement }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+
   return (
     <View style={styles.container}>
       <View style={styles.titleBlock}>
@@ -13,7 +17,7 @@ export function TopNavigation({ activeTab, activeTitle, rightElement }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   container: {
     height: 90,
     paddingHorizontal: 24,
@@ -32,6 +36,7 @@ const styles = StyleSheet.create({
   },
   tabTitle: {
     fontSize: 11,
+    lineHeight: 16,
     fontWeight: "400",
     color: colors.mutedFg,
     textTransform: "uppercase",

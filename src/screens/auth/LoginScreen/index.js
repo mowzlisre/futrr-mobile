@@ -1,68 +1,64 @@
 import { View, Text, Pressable, StyleSheet, Animated, Easing, Keyboard } from "react-native";
-import { useState, useRef, useEffect, useContext } from "react";
+import { useState, useRef, useEffect, useContext, useMemo } from "react";
+import { useNavigation } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { colors } from "@/constants";
+import { ROUTES } from "@/constants";
+import { useTheme } from "@/hooks/useTheme";
 import { loginUser } from "@/services/auth";
 import { saveTokens } from "@/services/storage";
 import { AuthContext } from "@/context/AuthContext";
 import { ParticleField } from "./ParticleField";
 import { FutrrInput } from "@/components/ui/FutrrInput";
 import { Divider } from "@/components/ui/Divider";
-import { styles } from "./styles";
+import { makeStyles } from "./styles";
 
-function SealIcon() {
-  return (
-    <View style={sealStyles.outer}>
-      <View style={sealStyles.ring} />
-      <View style={sealStyles.inner}>
-        <View style={sealStyles.triangle} />
-      </View>
-    </View>
-  );
-}
-
-const sealStyles = StyleSheet.create({
-  outer: {
-    width: 88,
-    height: 88,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 20,
-  },
-  ring: {
-    position: "absolute",
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    borderWidth: 1.5,
-    borderColor: `${colors.primary}55`,
-  },
-  inner: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    borderWidth: 1.5,
-    borderColor: `${colors.primary}88`,
-    backgroundColor: `${colors.primary}12`,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  triangle: {
-    width: 0,
-    height: 0,
-    borderTopWidth: 10,
-    borderBottomWidth: 10,
-    borderLeftWidth: 17,
-    borderTopColor: "transparent",
-    borderBottomColor: "transparent",
-    borderLeftColor: colors.primary,
-    marginLeft: 4,
-  },
-});
+const makeSealStyles = (colors) =>
+  StyleSheet.create({
+    outer: {
+      width: 88,
+      height: 88,
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: 20,
+    },
+    ring: {
+      position: "absolute",
+      width: 88,
+      height: 88,
+      borderRadius: 44,
+      borderWidth: 1.5,
+      borderColor: `${colors.primary}55`,
+    },
+    inner: {
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      borderWidth: 1.5,
+      borderColor: `${colors.primary}88`,
+      backgroundColor: `${colors.primary}12`,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    triangle: {
+      width: 0,
+      height: 0,
+      borderTopWidth: 10,
+      borderBottomWidth: 10,
+      borderLeftWidth: 17,
+      borderTopColor: "transparent",
+      borderBottomColor: "transparent",
+      borderLeftColor: colors.primary,
+      marginLeft: 4,
+    },
+  });
 
 export default function LoginScreen() {
   const { login } = useContext(AuthContext);
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const sealStyles = useMemo(() => makeSealStyles(colors), [colors]);
+  const navigation = useNavigation();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -134,8 +130,7 @@ export default function LoginScreen() {
       <Animated.View style={[styles.centerWrapper, { opacity: fadeIn, transform: [{ translateY: slideUp }] }]}>
         {/* Brand */}
         <View style={styles.brandBlock}>
-          <SealIcon />
-          <Text style={styles.logo}>FUTRR</Text>
+          <Text style={styles.logo}>futrr</Text>
           <Text style={styles.tagline}>Seal moments in time</Text>
         </View>
 
@@ -175,14 +170,25 @@ export default function LoginScreen() {
 
           <Divider />
 
-          <Pressable style={styles.socialButton}>
-            <Ionicons name="logo-google" size={22} color={colors.primary} />
+          <Pressable
+            style={styles.socialButton}
+            onPress={() => navigation.navigate(ROUTES.ONBOARDING, { startStep: 3, isOAuthFlow: true, oauthProvider: "apple" })}
+          >
+            <Ionicons name="logo-apple" size={22} color={colors.foreground} />
+            <Text style={styles.socialButtonText}>Continue with Apple</Text>
+          </Pressable>
+
+          <Pressable
+            style={[styles.socialButton, { marginTop: 10 }]}
+            onPress={() => navigation.navigate(ROUTES.ONBOARDING, { startStep: 3, isOAuthFlow: true, oauthProvider: "google" })}
+          >
+            <Ionicons name="logo-google" size={20} color={colors.primary} />
             <Text style={styles.socialButtonText}>Continue with Google</Text>
           </Pressable>
 
           <View style={styles.signupRow}>
             <Text style={styles.signupText}>Don't have an account?</Text>
-            <Pressable>
+            <Pressable onPress={() => navigation.navigate(ROUTES.ONBOARDING)}>
               <Text style={styles.signupLink}> Sign up</Text>
             </Pressable>
           </View>
@@ -202,6 +208,22 @@ export default function LoginScreen() {
       >
         <View style={{ paddingHorizontal: 32 }}>
           <Pressable
+            style={styles.socialButton}
+            onPress={() => navigation.navigate(ROUTES.ONBOARDING, { startStep: 3, isOAuthFlow: true, oauthProvider: "apple" })}
+          >
+            <Ionicons name="logo-apple" size={20} color={colors.foreground} />
+            <Text style={styles.socialButtonText}>Continue with Apple</Text>
+          </Pressable>
+
+          <Pressable
+            style={[styles.socialButton, { marginTop: 10, marginBottom: 16 }]}
+            onPress={() => navigation.navigate(ROUTES.ONBOARDING, { startStep: 3, isOAuthFlow: true, oauthProvider: "google" })}
+          >
+            <Ionicons name="logo-google" size={18} color={colors.foreground} />
+            <Text style={styles.socialButtonText}>Continue with Google</Text>
+          </Pressable>
+
+          <Pressable
             style={({ pressed }) => [styles.loginButton, pressed && styles.loginButtonPressed]}
             onPress={handleOpenForm}
           >
@@ -216,7 +238,7 @@ export default function LoginScreen() {
           </Pressable>
         </View>
 
-        <Pressable onPress={handleOpenForm} style={{ alignItems: "center", marginBottom: 40 }}>
+        <Pressable onPress={() => navigation.navigate(ROUTES.ONBOARDING)} style={{ alignItems: "center", marginBottom: 16 }}>
           <Text style={styles.alreadyHave}>I ALREADY HAVE AN ACCOUNT</Text>
         </Pressable>
 

@@ -30,13 +30,22 @@ export const unfollowUser = async (userId) => {
   return res.data;
 };
 
-export const getMyFollowers = async () => {
-  const res = await api.get("/users/me/followers/");
+export const getFollowRequests = async () => {
+  const res = await api.get("/users/me/follow-requests/");
   return res.data;
 };
 
-export const getMyFollowing = async () => {
-  const res = await api.get("/users/me/following/");
+export const acceptFollowRequest = async (requestId) => {
+  const res = await api.post(`/users/follow-requests/${requestId}/accept/`);
+  return res.data;
+};
+
+export const rejectFollowRequest = async (requestId) => {
+  await api.delete(`/users/follow-requests/${requestId}/reject/`);
+};
+
+export const deleteAccount = async (password) => {
+  const res = await api.delete("/users/delete-account/", { data: { password } });
   return res.data;
 };
 

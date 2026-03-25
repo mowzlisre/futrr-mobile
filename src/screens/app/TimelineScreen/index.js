@@ -2,26 +2,35 @@ import {
   View,
   Text,
   ScrollView,
+  RefreshControl,
   StyleSheet,
   Pressable,
   ActivityIndicator,
 } from "react-native";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
-import { colors, ROUTES, fonts } from "@/constants";
+import { ROUTES, fonts } from "@/constants";
+import { useTheme } from "@/hooks/useTheme";
 import { getCapsules } from "@/services/capsules";
 import { normalizeCapsule } from "@/utils/normalize";
 import { formatDate, getDaysUntil } from "@/utils/date";
+import { vaultBus } from "@/utils/vaultBus";
 
-const TYPE_ICONS = {
-  MESSAGE: "chatbubble-outline",
-  MEDIA: "images-outline",
-  MOMENT: "sparkles-outline",
-  COLLECTIVE: "people-outline",
-};
+// Map content types to their respective icons
+function getMediaIcon(capsule) {
+  const types = capsule.contentTypes || [];
+  if (types.includes("video")) return "videocam-outline";
+  if (types.includes("voice")) return "mic-outline";
+  if (types.includes("photo")) return "image-outline";
+  if (types.includes("text")) return "document-text-outline";
+  // Fallback to type-based icon
+  if (capsule.type === "COLLECTIVE") return "people-outline";
+  return "lock-closed-outline";
+}
 
-function TimelineItem({ capsule, isLast, onPress }) {
+function TimelineItem({ capsule, isLast, onPress, styles }) {
+  const { colors } = useTheme();
   const isUnlocked = capsule.status === "unlocked";
   const daysLeft = getDaysUntil(capsule.unlocksAt);
 
@@ -29,9 +38,13 @@ function TimelineItem({ capsule, isLast, onPress }) {
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [styles.item, pressed && { opacity: 0.85 }]}
+      accessibilityRole="button"
+      accessibilityLabel={capsule.title}
     >
       {/* Timeline line */}
       <View style={styles.lineColumn}>
+        {isUnlocked && <View style={styles.dotGlow} />}
+        {!isUnlocked && daysLeft < 30 && <View style={styles.dotGlowSoon} />}
         <View
           style={[
             styles.dot,
@@ -48,19 +61,22 @@ function TimelineItem({ capsule, isLast, onPress }) {
           <Text style={styles.dateText}>{formatDate(capsule.unlocksAt)}</Text>
           {isUnlocked ? (
             <View style={styles.unlockedPill}>
-              <Text style={styles.unlockedPillText}>UNLOCKED</Text>
+              <Ionicons name="lock-open-outline" size={10} color={colors.primary} />
+              <Text style={styles.unlockedPillText}>Unlocked</Text>
             </View>
-          ) : daysLeft < 30 ? (
+          ) : (
             <View style={styles.soonPill}>
-              <Text style={styles.soonPillText}>{daysLeft}d left</Text>
+              <Text style={styles.soonPillText}>
+                Unlocks in {daysLeft} day{daysLeft !== 1 ? "s" : ""}
+              </Text>
             </View>
-          ) : null}
+          )}
         </View>
 
         <View style={styles.card}>
           <View style={styles.cardIcon}>
             <Ionicons
-              name={TYPE_ICONS[capsule.type] || "lock-closed-outline"}
+              name={getMediaIcon(capsule)}
               size={18}
               color={isUnlocked ? colors.primary : colors.mutedFg}
             />
@@ -84,8 +100,11 @@ function TimelineItem({ capsule, isLast, onPress }) {
 
 export default function TimelineScreen() {
   const navigation = useNavigation();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [capsules, setCapsules] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -102,9 +121,31 @@ export default function TimelineScreen() {
     }
   }, []);
 
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const data = await getCapsules();
+      const normalized = (data.results ?? data)
+        .map(normalizeCapsule)
+        .sort((a, b) => new Date(a.unlocksAt) - new Date(b.unlocksAt));
+      setCapsules(normalized);
+    } catch (_) {}
+    setRefreshing(false);
+  }, []);
+
   useEffect(() => {
     load();
   }, [load]);
+
+  // Listen for new capsules from CreateCapsuleScreen
+  useEffect(() => {
+    return vaultBus.on((newCapsule) => {
+      setCapsules((prev) => {
+        const updated = [newCapsule, ...prev.filter((c) => c.id !== newCapsule.id)];
+        return updated.sort((a, b) => new Date(a.unlocksAt) - new Date(b.unlocksAt));
+      });
+    });
+  }, []);
 
   const handleItemPress = (capsule) => {
     if (capsule.status === "unlocked") {
@@ -122,6 +163,9 @@ export default function TimelineScreen() {
       style={styles.container}
       contentContainerStyle={styles.scrollContent}
       showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} />
+      }
     >
       {loading ? (
         <ActivityIndicator color={colors.primary} style={{ marginTop: 48 }} />
@@ -148,6 +192,7 @@ export default function TimelineScreen() {
                   capsule={capsule}
                   isLast={index === yearCapsules.length - 1}
                   onPress={() => handleItemPress(capsule)}
+                  styles={styles}
                 />
               ))}
             </View>
@@ -158,15 +203,15 @@ export default function TimelineScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 24,
+    paddingTop: 0,
+    paddingBottom: 120,
   },
   yearBanner: {
     flexDirection: "row",
@@ -181,6 +226,7 @@ const styles = StyleSheet.create({
   },
   yearText: {
     fontSize: 12,
+    lineHeight: 17,
     color: colors.mutedFg,
     letterSpacing: 2,
     fontWeight: "500",
@@ -201,13 +247,28 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: colors.secondaryBackground,
     marginTop: 4,
+    zIndex: 2,
+  },
+  dotGlow: {
+    position: "absolute",
+    top: 0,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: `${colors.primary}30`,
+    zIndex: 1,
+  },
+  dotGlowSoon: {
+    position: "absolute",
+    top: 0,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: `${colors.secondary || colors.primary}30`,
     zIndex: 1,
   },
   dotUnlocked: {
     backgroundColor: colors.primary,
-    shadowColor: colors.primary,
-    shadowOpacity: 0.6,
-    shadowRadius: 6,
   },
   dotSoon: {
     backgroundColor: colors.secondary,
@@ -232,38 +293,47 @@ const styles = StyleSheet.create({
   },
   dateText: {
     fontSize: 12,
+    lineHeight: 17,
     color: colors.mutedFg,
     letterSpacing: 0.3,
   },
   unlockedPill: {
-    backgroundColor: `${colors.primary}25`,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: `${colors.primary}18`,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: `${colors.primary}45`,
   },
   unlockedPillText: {
-    fontSize: 9,
+    fontSize: 10,
+    lineHeight: 14,
     color: colors.primary,
-    fontWeight: "700",
-    letterSpacing: 1,
+    fontWeight: "600",
+    letterSpacing: 0.5,
   },
   soonPill: {
-    backgroundColor: `${colors.secondary}25`,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
+    backgroundColor: `${colors.secondary}18`,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: `${colors.secondary}45`,
   },
   soonPillText: {
-    fontSize: 9,
+    fontSize: 10,
+    lineHeight: 14,
     color: colors.secondary,
-    fontWeight: "700",
-    letterSpacing: 1,
+    fontWeight: "600",
   },
   card: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: colors.card,
-    borderRadius: 14,
+    borderRadius: 16,
     padding: 14,
     borderWidth: 1,
     borderColor: colors.border,
@@ -271,9 +341,9 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   cardIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: colors.secondaryBackground,
     alignItems: "center",
     justifyContent: "center",
@@ -283,13 +353,14 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   cardTitle: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "300",
     color: colors.foreground,
     fontFamily: fonts.serif,
   },
   cardFrom: {
     fontSize: 12,
+    lineHeight: 17,
     color: colors.mutedFg,
   },
   emptyBox: {

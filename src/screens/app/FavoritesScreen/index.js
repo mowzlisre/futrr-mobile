@@ -1,39 +1,46 @@
 import {
   View,
   Text,
+  Image,
   FlatList,
+  RefreshControl,
   Pressable,
   StyleSheet,
   ActivityIndicator,
 } from "react-native";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { colors, ROUTES, fonts } from "@/constants";
+import { ROUTES, fonts } from "@/constants";
+import { useTheme } from "@/hooks/useTheme";
 import { getFavorites } from "@/services/capsules";
 import { normalizeCapsule } from "@/utils/normalize";
 import { useAuth } from "@/hooks/useAuth";
 import { formatDate } from "@/utils/date";
 
-function FavoriteCard({ capsule, onPress }) {
+function FavoriteCard({ capsule, onPress, colors, styles }) {
   const textContent = capsule.contents?.find((c) => c.content_type === "text");
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [styles.card, pressed && { opacity: 0.85 }]}
     >
-      <View style={styles.glowAccent} />
-
       <View style={styles.cardHeader}>
         <View style={styles.senderAvatar}>
-          <Text style={styles.senderAvatarText}>{capsule.fromInitial}</Text>
+          {capsule.fromAvatar ? (
+            <Image source={{ uri: capsule.fromAvatar }} style={styles.senderAvatarImg} />
+          ) : (
+            <Text style={styles.senderAvatarText}>{capsule.fromInitial}</Text>
+          )}
         </View>
         <View style={styles.senderInfo}>
           <Text style={styles.senderName}>From {capsule.from}</Text>
           <Text style={styles.sealedDate}>Sealed on {formatDate(capsule.sealedAt)}</Text>
         </View>
-        <Ionicons name="heart" size={18} color={colors.primary} />
+        <View style={styles.heartGlow}>
+          <Ionicons name="heart" size={18} color={colors.primary} />
+        </View>
       </View>
 
       <Text style={styles.capsuleTitle}>{capsule.title}</Text>
@@ -62,7 +69,7 @@ function FavoriteCard({ capsule, onPress }) {
               capsule.status === "unlocked" && { color: colors.primary },
             ]}
           >
-            {capsule.status === "unlocked" ? "UNLOCKED" : "SEALED"}
+            {capsule.status === "unlocked" ? "Unlocked" : "Sealed"}
           </Text>
         </View>
         <Text style={styles.footerDate}>{formatDate(capsule.unlocksAt)}</Text>
@@ -71,7 +78,7 @@ function FavoriteCard({ capsule, onPress }) {
   );
 }
 
-function EmptyState() {
+function EmptyState({ colors, styles }) {
   return (
     <View style={styles.emptyContainer}>
       <Ionicons name="heart-outline" size={52} color={colors.border} />
@@ -86,8 +93,11 @@ function EmptyState() {
 export default function FavoritesScreen() {
   const navigation = useNavigation();
   const { user } = useAuth();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [capsules, setCapsules] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -98,6 +108,15 @@ export default function FavoritesScreen() {
     } finally {
       setLoading(false);
     }
+  }, [user?.id]);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const data = await getFavorites();
+      setCapsules(data.map((c) => normalizeCapsule(c, user?.id)));
+    } catch (_) {}
+    setRefreshing(false);
   }, [user?.id]);
 
   useEffect(() => {
@@ -128,15 +147,18 @@ export default function FavoritesScreen() {
       {loading ? (
         <ActivityIndicator color={colors.primary} style={{ marginTop: 32 }} />
       ) : capsules.length === 0 ? (
-        <EmptyState />
+        <EmptyState colors={colors} styles={styles} />
       ) : (
         <FlatList
           data={capsules}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} />
+          }
           renderItem={({ item }) => (
-            <FavoriteCard capsule={item} onPress={() => handleCardPress(item)} />
+            <FavoriteCard capsule={item} onPress={() => handleCardPress(item)} colors={colors} styles={styles} />
           )}
         />
       )}
@@ -144,7 +166,7 @@ export default function FavoritesScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -168,6 +190,7 @@ const styles = StyleSheet.create({
   },
   headerSub: {
     fontSize: 10,
+    lineHeight: 14,
     color: colors.mutedFg,
     letterSpacing: 2,
     textTransform: "uppercase",
@@ -184,28 +207,36 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   card: {
-    backgroundColor: colors.card,
+    backgroundColor: colors.background,
     borderRadius: 20,
-    padding: 20,
+    padding: 18,
     borderWidth: 1,
-    borderColor: `${colors.primary}30`,
+    borderColor: colors.border,
     overflow: "hidden",
     marginBottom: 12,
+    gap: 12,
   },
-  glowAccent: {
-    position: "absolute",
-    top: -30,
-    right: -30,
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: `${colors.primary}08`,
+  heartGlow: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: colors.primary,
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 6,
   },
   cardHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    marginBottom: 14,
+  },
+  senderAvatarImg: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
   },
   senderAvatar: {
     width: 38,
@@ -219,10 +250,10 @@ const styles = StyleSheet.create({
   },
   senderAvatarText: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: "700",
     color: colors.foreground,
   },
-  senderInfo: { flex: 1 },
+  senderInfo: { flex: 1, gap: 2 },
   senderName: {
     fontSize: 14,
     fontWeight: "500",
@@ -230,22 +261,21 @@ const styles = StyleSheet.create({
   },
   sealedDate: {
     fontSize: 11,
+    lineHeight: 16,
     color: colors.mutedFg,
-    marginTop: 2,
   },
   capsuleTitle: {
     fontSize: 20,
     fontWeight: "300",
     color: colors.foreground,
-    marginBottom: 10,
     fontFamily: fonts.serif,
+    lineHeight: 28,
   },
   messagePreview: {
     fontSize: 13,
     color: colors.mutedFg,
     lineHeight: 20,
     fontStyle: "italic",
-    marginBottom: 14,
   },
   cardFooter: {
     flexDirection: "row",
@@ -258,20 +288,25 @@ const styles = StyleSheet.create({
     gap: 5,
     backgroundColor: colors.secondaryBackground,
     paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   unlockedBadge: {
-    backgroundColor: `${colors.primary}20`,
+    backgroundColor: `${colors.primary}15`,
+    borderColor: `${colors.primary}50`,
   },
   statusText: {
-    fontSize: 9,
+    fontSize: 11,
+    lineHeight: 16,
     color: colors.mutedFg,
-    fontWeight: "700",
-    letterSpacing: 1,
+    fontWeight: "500",
+    letterSpacing: 0.5,
   },
   footerDate: {
     fontSize: 11,
+    lineHeight: 16,
     color: colors.mutedFg,
   },
   emptyContainer: {

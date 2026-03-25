@@ -1,9 +1,11 @@
 import { View, Text, Pressable, StyleSheet } from "react-native";
-import { useState, useEffect } from "react";
+import { LinearGradient } from "expo-linear-gradient";
+import { useState, useEffect, useMemo } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
-import { colors, TABS, ROUTES } from "@/constants";
+import { TABS, ROUTES } from "@/constants";
+import { useTheme } from "@/hooks/useTheme";
 import { TopNavigation } from "@/components/navigation/TopNavigation";
 import { BottomNavigation } from "@/components/navigation/BottomNavigation";
 import { getNotifications } from "@/services/notifications";
@@ -14,6 +16,8 @@ import ProfileScreen from "@/screens/app/ProfileScreen";
 
 export default function MainApp() {
   const navigation = useNavigation();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [activeTab, setActiveTab] = useState(TABS.VAULT);
   const [activeTitle, setActiveTitle] = useState("Your Capsules");
   const [unreadCount, setUnreadCount] = useState(0);
@@ -66,12 +70,20 @@ export default function MainApp() {
 
     if (activeTab === TABS.DISCOVER) {
       return (
-        <Pressable
-          onPress={() => navigation.navigate(ROUTES.ATLAS)}
-          style={styles.headerBtn}
-        >
-          <Ionicons name="earth-outline" size={24} color={colors.mutedFg} />
-        </Pressable>
+        <View style={styles.headerActions}>
+          <Pressable
+            onPress={() => navigation.navigate(ROUTES.CREATE_EVENT)}
+            style={styles.headerBtn}
+          >
+            <Ionicons name="add-circle-outline" size={22} color={colors.mutedFg} />
+          </Pressable>
+          <Pressable
+            onPress={() => navigation.navigate(ROUTES.ATLAS)}
+            style={styles.headerBtn}
+          >
+            <Ionicons name="earth-outline" size={24} color={colors.mutedFg} />
+          </Pressable>
+        </View>
       );
     }
 
@@ -113,7 +125,7 @@ export default function MainApp() {
   return (
     <SafeAreaView
       style={{ flex: 1, backgroundColor: colors.background }}
-      edges={["top", "bottom"]}
+      edges={["top"]}
     >
       <View style={{ flex: 1 }}>
         <TopNavigation
@@ -121,14 +133,24 @@ export default function MainApp() {
           activeTitle={activeTitle}
           rightElement={getRightElement()}
         />
-        <View style={{ flex: 1, paddingBottom: 80 }}>{renderScreen()}</View>
+        <View style={{ flex: 1 }}>
+          {renderScreen()}
+        </View>
         <BottomNavigation activeTab={activeTab} onTabChange={handleTabChange} />
       </View>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
+  navFade: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 120,
+    
+  },
   headerActions: {
     flexDirection: "row",
     alignItems: "center",
@@ -156,6 +178,7 @@ const styles = StyleSheet.create({
   },
   badgeText: {
     fontSize: 9,
+    lineHeight: 13,
     fontWeight: "700",
     color: colors.primaryFg,
   },

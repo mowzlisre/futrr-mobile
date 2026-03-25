@@ -3,20 +3,22 @@ import {
   Text,
   Pressable,
   ScrollView,
+  RefreshControl,
   StyleSheet,
   ActivityIndicator,
 } from "react-native";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { colors, fonts } from "@/constants";
+import { fonts } from "@/constants";
+import { useTheme } from "@/hooks/useTheme";
 import { getUserProfile, followUser, unfollowUser } from "@/services/user";
 import { formatDate } from "@/utils/date";
 
 // ─── Capsule mini-card ─────────────────────────────────────────────────────────
 
-function CapsuleMini({ capsule }) {
+function CapsuleMini({ capsule, colors, styles }) {
   const isUnlocked = capsule.status === "unlocked";
   return (
     <View style={styles.miniCard}>
@@ -37,7 +39,7 @@ function CapsuleMini({ capsule }) {
 
 // ─── Stat item ────────────────────────────────────────────────────────────────
 
-function StatItem({ value, label }) {
+function StatItem({ value, label, styles }) {
   return (
     <View style={styles.statItem}>
       <Text style={styles.statValue}>{value}</Text>
@@ -52,9 +54,12 @@ export default function UserProfileScreen() {
   const navigation = useNavigation();
   const route = useRoute();
   const { userId, username: initialUsername } = route.params ?? {};
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [following, setFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
 
@@ -74,6 +79,17 @@ export default function UserProfileScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const handleRefresh = useCallback(async () => {
+    if (!userId) return;
+    setRefreshing(true);
+    try {
+      const data = await getUserProfile(userId);
+      setProfile(data);
+      setFollowing(data.is_following ?? false);
+    } catch {}
+    setRefreshing(false);
+  }, [userId]);
 
   const handleFollowToggle = async () => {
     if (followLoading) return;
@@ -126,6 +142,9 @@ export default function UserProfileScreen() {
         <ScrollView
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} />
+          }
         >
           {/* Avatar */}
           <View style={styles.avatarSection}>
@@ -142,13 +161,14 @@ export default function UserProfileScreen() {
 
           {/* Stats row */}
           <View style={styles.statsRow}>
-            <StatItem value={profile?.followers_count ?? 0} label="Followers" />
+            <StatItem value={profile?.followers_count ?? 0} label="Followers" styles={styles} />
             <View style={styles.statDivider} />
-            <StatItem value={profile?.following_count ?? 0} label="Following" />
+            <StatItem value={profile?.following_count ?? 0} label="Following" styles={styles} />
             <View style={styles.statDivider} />
             <StatItem
               value={profile?.public_capsules?.length ?? 0}
               label="Capsules"
+              styles={styles}
             />
           </View>
 
@@ -178,10 +198,28 @@ export default function UserProfileScreen() {
             )}
           </Pressable>
 
+          {/* Pinned capsules */}
+          {profile?.pinned_capsules?.length > 0 && (
+            <>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>PINNED</Text>
+              </View>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.capsuleList}
+              >
+                {profile.pinned_capsules.map((c) => (
+                  <CapsuleMini key={c.id} capsule={c} colors={colors} styles={styles} />
+                ))}
+              </ScrollView>
+            </>
+          )}
+
           {/* Public capsules */}
           {profile?.public_capsules?.length > 0 && (
             <>
-              <View style={styles.sectionHeader}>
+              <View style={[styles.sectionHeader, { marginTop: profile?.pinned_capsules?.length > 0 ? 24 : 0 }]}>
                 <Text style={styles.sectionTitle}>PUBLIC CAPSULES</Text>
               </View>
               <ScrollView
@@ -190,7 +228,7 @@ export default function UserProfileScreen() {
                 contentContainerStyle={styles.capsuleList}
               >
                 {profile.public_capsules.map((c) => (
-                  <CapsuleMini key={c.id} capsule={c} />
+                  <CapsuleMini key={c.id} capsule={c} colors={colors} styles={styles} />
                 ))}
               </ScrollView>
             </>
@@ -201,7 +239,7 @@ export default function UserProfileScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -230,6 +268,7 @@ const styles = StyleSheet.create({
   },
   headerSub: {
     fontSize: 10,
+    lineHeight: 14,
     color: colors.mutedFg,
     letterSpacing: 2,
     textTransform: "uppercase",
@@ -244,7 +283,7 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: 20,
-    paddingBottom: 32,
+    paddingBottom: 160,
   },
   avatarSection: {
     alignItems: "center",
@@ -305,6 +344,7 @@ const styles = StyleSheet.create({
   },
   statLabel: {
     fontSize: 11,
+    lineHeight: 16,
     color: colors.mutedFg,
     marginTop: 3,
   },
@@ -348,6 +388,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 10,
+    lineHeight: 14,
     color: colors.mutedFg,
     letterSpacing: 2,
     textTransform: "uppercase",
@@ -386,6 +427,7 @@ const styles = StyleSheet.create({
   },
   miniDate: {
     fontSize: 10,
+    lineHeight: 14,
     color: colors.mutedFg,
   },
 });

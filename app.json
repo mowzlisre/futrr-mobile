@@ -15,7 +15,8 @@
       "supportsTablet": false,
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "futrr uses your location to show nearby time capsules on the Atlas."
-      }
+      },
+      "bundleIdentifier": "com.mowzlisre.futrr-mobile"
     },
     "android": {
       "adaptiveIcon": {
@@ -23,7 +24,11 @@
       },
       "permissions": [
         "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION"
+        "ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ]
     },
     "web": {

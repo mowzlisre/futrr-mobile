@@ -4,29 +4,94 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
+  Alert,
+  ActivityIndicator,
 } from "react-native";
+import { useState, useEffect, useMemo } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { colors } from "@/constants";
+import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/hooks/useAuth";
-
-const MENU_ITEMS = [
-  { icon: "notifications-outline", label: "Notifications" },
-  { icon: "shield-outline", label: "Privacy" },
-  { icon: "help-circle-outline", label: "Help & Support" },
-  { icon: "information-circle-outline", label: "About futrr" },
-];
+import { hapticWarning, hapticLight } from "@/utils/haptics";
+import { getProfile, updateProfile, deleteAccount } from "@/services/user";
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
   const { logout } = useAuth();
+  const { colors, isDark, toggle } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [isPrivate, setIsPrivate] = useState(false);
+  const [privacyLoading, setPrivacyLoading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    getProfile()
+      .then((data) => setIsPrivate(data.is_private ?? false))
+      .catch(() => {});
+  }, []);
+
+  const handlePrivacyToggle = async (value) => {
+    hapticLight();
+    setIsPrivate(value);
+    setPrivacyLoading(true);
+    try {
+      await updateProfile({ is_private: value });
+    } catch {
+      setIsPrivate(!value);
+      Alert.alert("Error", "Could not update privacy setting.");
+    } finally {
+      setPrivacyLoading(false);
+    }
+  };
+
+  const handleThemeToggle = () => {
+    hapticLight();
+    toggle();
+  };
+
+  const handleDeleteAccount = () => {
+    hapticWarning();
+    Alert.alert(
+      "Delete Account",
+      "This will permanently delete your account, all your capsules, and all associated media. This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: confirmDelete,
+        },
+      ]
+    );
+  };
+
+  const confirmDelete = () => {
+    Alert.prompt(
+      "Confirm Password",
+      "Enter your password to confirm account deletion.",
+      async (password) => {
+        if (!password) return;
+        setDeleting(true);
+        try {
+          await deleteAccount(password);
+          await logout();
+        } catch (err) {
+          setDeleting(false);
+          const msg = err?.response?.data?.error || "Could not delete account. Check your password.";
+          Alert.alert("Error", msg);
+        }
+      },
+      "secure-text"
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
+        <Pressable onPress={() => navigation.goBack()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="chevron-back" size={24} color={colors.foreground} />
         </Pressable>
         <View>
@@ -40,16 +105,20 @@ export default function SettingsScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        {/* Menu */}
+        {/* Notifications section */}
         <View style={styles.menuSection}>
-          {MENU_ITEMS.map((item, i) => (
-            <Pressable
+          {[
+            { icon: "notifications-outline", label: "Notifications" },
+            { icon: "help-circle-outline", label: "Help & Support" },
+            { icon: "information-circle-outline", label: "About futrr" },
+          ].map((item, i, arr) => (
+            <View
               key={item.label}
-              style={({ pressed }) => [
+              style={[
                 styles.menuItem,
-                i === MENU_ITEMS.length - 1 && styles.menuItemLast,
-                pressed && { opacity: 0.7 },
+                i === arr.length - 1 && styles.menuItemLast,
               ]}
+              accessibilityLabel={item.label}
             >
               <View style={styles.menuItemLeft}>
                 <View style={styles.menuIconWrap}>
@@ -57,18 +126,96 @@ export default function SettingsScreen() {
                 </View>
                 <Text style={styles.menuItemLabel}>{item.label}</Text>
               </View>
-              <Ionicons name="chevron-forward" size={16} color={colors.mutedFg} />
-            </Pressable>
+              <Text style={styles.comingSoon}>Coming soon</Text>
+            </View>
           ))}
+        </View>
+
+        {/* Appearance section */}
+        <Text style={styles.sectionTitle}>APPEARANCE</Text>
+        <View style={styles.menuSection}>
+          <View style={[styles.menuItem, styles.menuItemLast]}>
+            <View style={styles.menuItemLeft}>
+              <View style={styles.menuIconWrap}>
+                <Ionicons name={isDark ? "moon-outline" : "sunny-outline"} size={20} color={colors.mutedFg} />
+              </View>
+              <View>
+                <Text style={styles.menuItemLabel}>Dark Mode</Text>
+                <Text style={styles.menuItemSub}>
+                  {isDark ? "Dark theme active" : "Light theme active"}
+                </Text>
+              </View>
+            </View>
+            <Switch
+              value={isDark}
+              onValueChange={handleThemeToggle}
+              trackColor={{ false: colors.border, true: `${colors.primary}80` }}
+              thumbColor={isDark ? colors.primary : colors.mutedFg}
+              style={{ transform: [{ scale: 0.8 }] }}
+              accessibilityLabel="Dark mode toggle"
+              accessibilityRole="switch"
+            />
+          </View>
+        </View>
+
+        {/* Privacy section */}
+        <Text style={styles.sectionTitle}>PRIVACY</Text>
+        <View style={styles.menuSection}>
+          <View style={[styles.menuItem, styles.menuItemLast]}>
+            <View style={styles.menuItemLeft}>
+              <View style={styles.menuIconWrap}>
+                <Ionicons name="lock-closed-outline" size={20} color={colors.mutedFg} />
+              </View>
+              <View>
+                <Text style={styles.menuItemLabel}>Private Account</Text>
+                <Text style={styles.menuItemSub}>
+                  {isPrivate ? "Only approved followers see your capsules" : "Anyone can follow you"}
+                </Text>
+              </View>
+            </View>
+            {privacyLoading ? (
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : (
+              <Switch
+                value={isPrivate}
+                onValueChange={handlePrivacyToggle}
+                trackColor={{ false: colors.border, true: `${colors.primary}80` }}
+                thumbColor={isPrivate ? colors.primary : colors.mutedFg}
+                style={{ transform: [{ scale: 0.8 }] }}
+                accessibilityLabel="Private account toggle"
+                accessibilityRole="switch"
+              />
+            )}
+          </View>
         </View>
 
         {/* Sign Out */}
         <Pressable
-          onPress={logout}
+          onPress={() => Alert.alert("Sign Out", "Are you sure you want to sign out?", [{ text: "Cancel", style: "cancel" }, { text: "Sign Out", style: "destructive", onPress: logout }])}
           style={({ pressed }) => [styles.logoutButton, pressed && { opacity: 0.7 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Sign out"
         >
-          <Ionicons name="log-out-outline" size={20} color="#E05A5A" />
+          <Ionicons name="log-out-outline" size={20} color={colors.error} />
           <Text style={styles.logoutText}>Sign Out</Text>
+        </Pressable>
+
+        {/* Delete Account */}
+        <Pressable
+          onPress={handleDeleteAccount}
+          disabled={deleting}
+          style={({ pressed }) => [styles.deleteButton, pressed && { opacity: 0.7 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Delete account"
+        >
+          {deleting ? (
+            <ActivityIndicator size="small" color={colors.error} />
+          ) : (
+            <>
+              <Ionicons name="trash-outline" size={18} color={colors.error} />
+              <Text style={styles.deleteText}>Delete Account</Text>
+            </>
+          )}
         </Pressable>
 
         <Text style={styles.version}>futrr · v1.0.0</Text>
@@ -77,104 +224,144 @@ export default function SettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.card,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  headerSub: {
-    fontSize: 10,
-    color: colors.mutedFg,
-    letterSpacing: 2,
-    textTransform: "uppercase",
-    textAlign: "center",
-  },
-  headerTitle: {
-    fontSize: 22,
-    fontWeight: "300",
-    color: colors.foreground,
-    textAlign: "center",
-  },
-  content: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 32,
-  },
-  menuSection: {
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: "hidden",
-    marginBottom: 20,
-  },
-  menuItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  menuItemLast: {
-    borderBottomWidth: 0,
-  },
-  menuItemLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  menuIconWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    backgroundColor: colors.secondaryBackground,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  menuItemLabel: {
-    fontSize: 15,
-    color: colors.foreground,
-  },
-  logoutButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: "rgba(224,90,90,0.1)",
-    borderRadius: 14,
-    paddingVertical: 14,
-    borderWidth: 1,
-    borderColor: "rgba(224,90,90,0.2)",
-    marginBottom: 28,
-  },
-  logoutText: {
-    fontSize: 15,
-    color: "#E05A5A",
-    fontWeight: "500",
-  },
-  version: {
-    textAlign: "center",
-    fontSize: 11,
-    color: `${colors.mutedFg}66`,
-    letterSpacing: 1,
-  },
-});
+const makeStyles = (colors) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+    },
+    backBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.card,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    headerSub: {
+      fontSize: 10,
+      lineHeight: 14,
+      color: colors.mutedFg,
+      letterSpacing: 2,
+      textTransform: "uppercase",
+      textAlign: "center",
+    },
+    headerTitle: {
+      fontSize: 22,
+      fontWeight: "300",
+      color: colors.foreground,
+      textAlign: "center",
+    },
+    content: {
+      paddingHorizontal: 20,
+      paddingTop: 8,
+      paddingBottom: 32,
+    },
+    sectionTitle: {
+      fontSize: 10,
+      lineHeight: 14,
+      color: colors.mutedFg,
+      letterSpacing: 2,
+      textTransform: "uppercase",
+      fontWeight: "500",
+      marginBottom: 8,
+      marginTop: 4,
+      paddingLeft: 4,
+    },
+    menuSection: {
+      backgroundColor: colors.card,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: colors.border,
+      overflow: "hidden",
+      marginBottom: 20,
+    },
+    menuItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    menuItemLast: {
+      borderBottomWidth: 0,
+    },
+    menuItemLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      flex: 1,
+    },
+    menuIconWrap: {
+      width: 34,
+      height: 34,
+      borderRadius: 10,
+      backgroundColor: colors.secondaryBackground,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    menuItemLabel: {
+      fontSize: 15,
+      color: colors.foreground,
+    },
+    comingSoon: {
+      fontSize: 10,
+      lineHeight: 14,
+      color: colors.mutedFg,
+      fontStyle: "italic",
+    },
+    menuItemSub: {
+      fontSize: 11,
+      lineHeight: 16,
+      color: colors.mutedFg,
+      marginTop: 1,
+    },
+    logoutButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+      backgroundColor: `${colors.error}1A`,
+      borderRadius: 14,
+      paddingVertical: 14,
+      borderWidth: 1,
+      borderColor: `${colors.error}33`,
+      marginBottom: 12,
+    },
+    logoutText: {
+      fontSize: 15,
+      color: colors.error,
+      fontWeight: "500",
+    },
+    deleteButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+      paddingVertical: 14,
+      marginBottom: 28,
+    },
+    deleteText: {
+      fontSize: 13,
+      color: colors.error,
+      opacity: 0.7,
+    },
+    version: {
+      textAlign: "center",
+      fontSize: 11,
+      lineHeight: 16,
+      color: `${colors.mutedFg}66`,
+      letterSpacing: 1,
+    },
+  });

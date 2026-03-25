@@ -1,34 +1,44 @@
 import {
   View,
   Text,
+  Image,
   ScrollView,
+  RefreshControl,
   Pressable,
   TextInput,
   StyleSheet,
   ActivityIndicator,
   FlatList,
 } from "react-native";
-import { useState, useEffect, useCallback, useRef, memo } from "react";
+import { useState, useEffect, useCallback, useRef, memo, useMemo } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
-import { colors, fonts, ROUTES } from "@/constants";
-import { getDiscoverFeed, getFriendsFeed, getGlobalFeed, searchDiscover } from "@/services/discover";
+import { fonts, ROUTES } from "@/constants";
+import { useTheme } from "@/hooks/useTheme";
+import { getFriendsFeed, getGlobalFeed, searchDiscover } from "@/services/discover";
+import { getEvents } from "@/services/events";
 import { followUser, unfollowUser } from "@/services/user";
 import { normalizeCapsule } from "@/utils/normalize";
 import { useAuth } from "@/hooks/useAuth";
 import { getDaysUntil, formatDate } from "@/utils/date";
+import { eventBus } from "@/utils/eventBus";
 
-const FILTER_TABS = ["Trending", "Friends", "Global"];
+const FILTER_TABS = ["Friends", "Events", "Global"];
 
 // ─── Shared card components ───────────────────────────────────────────────────
 
-function CapsuleRow({ capsule, onPress }) {
+function CapsuleRow({ capsule, onPress, styles }) {
+  const { colors } = useTheme();
   const daysLeft = getDaysUntil(capsule.unlocksAt);
   const isUnlocked = capsule.status === "unlocked";
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.capsuleRow, pressed && { opacity: 0.8 }]}
+      style={({ pressed }) => [
+        styles.capsuleRow,
+        isUnlocked && styles.capsuleRowUnlocked,
+        pressed && { opacity: 0.8 },
+      ]}
     >
       <View style={[styles.rowLock, isUnlocked && styles.rowLockUnlocked]}>
         <Ionicons
@@ -48,33 +58,91 @@ function CapsuleRow({ capsule, onPress }) {
           </Text>
         </View>
       </View>
-      <View style={[styles.typeBadge, capsule.isPublic && styles.publicBadge]}>
-        <Text style={[styles.typeBadgeText, capsule.isPublic && styles.publicBadgeText]}>
-          {capsule.isPublic ? "PUBLIC" : "PRIVATE"}
+      <View style={[styles.statusPill, isUnlocked && styles.statusPillUnlocked]}>
+        <Ionicons
+          name={isUnlocked ? "lock-open-outline" : "lock-closed-outline"}
+          size={10}
+          color={isUnlocked ? colors.primary : colors.mutedFg}
+        />
+        <Text style={[styles.statusPillText, isUnlocked && styles.statusPillTextUnlocked]}>
+          {isUnlocked ? "Unlocked" : "Sealed"}
         </Text>
       </View>
     </Pressable>
   );
 }
 
-function EventRow({ event }) {
+function DiscoverCapsuleCard({ capsule, onPress, styles }) {
+  const { colors } = useTheme();
+  const isUnlocked = capsule.status === "unlocked";
   return (
-    <View style={styles.eventRow}>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.discoverCard, pressed && { opacity: 0.85 }]}
+    >
+      <View style={styles.cardHeader}>
+        <View style={styles.cardAvatar}>
+          {capsule.fromAvatar ? (
+            <Image source={{ uri: capsule.fromAvatar }} style={styles.cardAvatarImg} />
+          ) : (
+            <Text style={styles.cardAvatarText}>{capsule.fromInitial}</Text>
+          )}
+        </View>
+        <View style={styles.cardSenderInfo}>
+          <Text style={styles.cardSenderName}>{capsule.from}</Text>
+          {capsule.sealedAt ? (
+            <Text style={styles.cardSealedDate}>Sealed {formatDate(capsule.sealedAt)}</Text>
+          ) : null}
+        </View>
+        <View style={[styles.statusPill, isUnlocked && styles.statusPillUnlocked]}>
+          <Ionicons
+            name={isUnlocked ? "lock-open-outline" : "lock-closed-outline"}
+            size={10}
+            color={isUnlocked ? colors.primary : colors.mutedFg}
+          />
+          <Text style={[styles.statusPillText, isUnlocked && styles.statusPillTextUnlocked]}>
+            {isUnlocked ? "Unlocked" : "Sealed"}
+          </Text>
+        </View>
+      </View>
+      <Text style={styles.discoverCardTitle} numberOfLines={2}>{capsule.title}</Text>
+      {!!capsule.description && (
+        <Text style={styles.discoverCardDesc} numberOfLines={2}>{capsule.description}</Text>
+      )}
+      <View style={styles.cardFooter}>
+        <View style={styles.datePill}>
+          <Text style={styles.datePillText}>
+            {isUnlocked ? "Unlocked " : "Unlocks "}{formatDate(capsule.unlocksAt)}
+          </Text>
+        </View>
+        <Text style={styles.typeLabel}>{capsule.type}</Text>
+      </View>
+    </Pressable>
+  );
+}
+
+function EventRow({ event, styles }) {
+  const { colors } = useTheme();
+  const navigation = useNavigation();
+  return (
+    <Pressable
+      onPress={() => navigation.navigate(ROUTES.EVENT_DETAIL, { event })}
+      style={({ pressed }) => [styles.eventRow, pressed && { opacity: 0.8 }]}
+    >
       <View style={styles.eventIconWrap}>
         <Ionicons name="calendar-outline" size={16} color={colors.primary} />
       </View>
       <View style={styles.rowInfo}>
-        <Text style={styles.rowTitle} numberOfLines={1}>{event.title}</Text>
+        <Text style={styles.rowTitle} numberOfLines={1}>{event.title} / {event.subtitle}</Text>
         <Text style={styles.rowMetaText} numberOfLines={1}>{event.description || "Global event"}</Text>
       </View>
-      <Pressable style={styles.joinBtn}>
-        <Text style={styles.joinBtnText}>Join</Text>
-      </Pressable>
-    </View>
+      <Ionicons name="chevron-forward" size={14} color={colors.mutedFg} />
+    </Pressable>
   );
 }
 
-function PersonRow({ person, onFollowToggle }) {
+function PersonRow({ person, onFollowToggle, styles }) {
+  const { colors } = useTheme();
   const navigation = useNavigation();
   const [following, setFollowing] = useState(person.is_following);
   const [loading, setLoading] = useState(false);
@@ -133,88 +201,31 @@ function PersonRow({ person, onFollowToggle }) {
 
 // ─── Tab content ──────────────────────────────────────────────────────────────
 
-const TrendingTab = memo(function TrendingTab({ userId }) {
+const FriendsTab = memo(function FriendsTab({ userId, refreshKey, styles }) {
+  const { colors } = useTheme();
   const navigation = useNavigation();
   const [capsules, setCapsules] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
-  useEffect(() => {
-    getDiscoverFeed()
-      .then((d) => setCapsules(d.results.map((c) => normalizeCapsule(c, userId))))
-      .catch(() => setCapsules([]))
-      .finally(() => setLoading(false));
-  }, []);
-
-  if (loading) return <ActivityIndicator color={colors.primary} style={{ marginTop: 32 }} />;
-  if (!capsules.length)
-    return <EmptyHint icon="flame-outline" text="No trending capsules yet" />;
-
-  const featured = capsules[0];
-  const rest = capsules.slice(1);
-  return (
-    <>
-      {featured && (
-        <Pressable
-          onPress={() =>
-            navigation.navigate(
-              featured.status === "unlocked" ? ROUTES.UNLOCKED_CAPSULE : ROUTES.LOCKED_CAPSULE,
-              { capsule: featured }
-            )
-          }
-          style={styles.featuredCard}
-        >
-          <View style={styles.featuredBadge}>
-            <Text style={styles.featuredBadgeText}>FEATURED</Text>
-          </View>
-          <Text style={styles.featuredTitle}>{featured.title}</Text>
-          <Text style={styles.featuredDesc} numberOfLines={2}>{featured.description}</Text>
-          <View style={styles.featuredFooter}>
-            <View style={styles.avatarRow}>
-              <View style={styles.avatar}>
-                <Text style={styles.avatarText}>{featured.fromInitial}</Text>
-              </View>
-              <Text style={styles.featuredFrom}> · {featured.from}</Text>
-            </View>
-            <View style={styles.publicBadge}>
-              <Text style={styles.publicBadgeText}>PUBLIC</Text>
-            </View>
-          </View>
-        </Pressable>
-      )}
-      {rest.map((c) => (
-        <CapsuleRow
-          key={c.id}
-          capsule={c}
-          onPress={() =>
-            navigation.navigate(
-              c.status === "unlocked" ? ROUTES.UNLOCKED_CAPSULE : ROUTES.LOCKED_CAPSULE,
-              { capsule: c }
-            )
-          }
-        />
-      ))}
-    </>
-  );
-});
-
-const FriendsTab = memo(function FriendsTab({ userId }) {
-  const navigation = useNavigation();
-  const [capsules, setCapsules] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoading(true);
+    setError(false);
     getFriendsFeed()
       .then((data) => {
         const list = data.results ?? data;
         setCapsules(list.map((c) => normalizeCapsule(c, userId)));
       })
-      .catch(() => setCapsules([]))
+      .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => { load(); }, [refreshKey]);
+
   if (loading) return <ActivityIndicator color={colors.primary} style={{ marginTop: 32 }} />;
+  if (error) return <ErrorHint onRetry={load} styles={styles} />;
   if (!capsules.length)
-    return <EmptyHint icon="people-outline" text="Follow people to see their public capsules here" />;
+    return <EmptyHint icon="people-outline" text="Follow people to see their public capsules here" styles={styles} />;
 
   return capsules.map((c) => (
     <CapsuleRow
@@ -226,62 +237,83 @@ const FriendsTab = memo(function FriendsTab({ userId }) {
           { capsule: c }
         )
       }
+      styles={styles}
     />
   ));
 });
 
-const GlobalTab = memo(function GlobalTab({ userId }) {
-  const [data, setData] = useState({ events: [], capsules: [] });
+const EventsTab = memo(function EventsTab({ refreshKey, styles }) {
+  const { colors } = useTheme();
+  const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
-  const navigation = useNavigation();
+  const [error, setError] = useState(false);
 
-  useEffect(() => {
-    getGlobalFeed()
-      .then((d) => setData({ events: d.events ?? [], capsules: (d.capsules ?? []).map((c) => normalizeCapsule(c, userId)) }))
-      .catch(() => setData({ events: [], capsules: [] }))
+  const load = useCallback(() => {
+    setLoading(true);
+    setError(false);
+    getEvents()
+      .then((d) => setEvents(d.results ?? []))
+      .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <ActivityIndicator color={colors.primary} style={{ marginTop: 32 }} />;
-  if (!data.events.length && !data.capsules.length)
-    return <EmptyHint icon="earth-outline" text="No global content yet" />;
+  useEffect(() => { load(); }, [refreshKey]);
 
-  return (
-    <>
-      {data.events.length > 0 && (
-        <>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>GLOBAL EVENTS</Text>
-          </View>
-          {data.events.map((e) => (
-            <EventRow key={e.id} event={e} />
-          ))}
-        </>
-      )}
-      {data.capsules.length > 0 && (
-        <>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>GLOBAL CAPSULES</Text>
-          </View>
-          {data.capsules.map((c) => (
-            <CapsuleRow
-              key={c.id}
-              capsule={c}
-              onPress={() =>
-                navigation.navigate(
-                  c.status === "unlocked" ? ROUTES.UNLOCKED_CAPSULE : ROUTES.LOCKED_CAPSULE,
-                  { capsule: c }
-                )
-              }
-            />
-          ))}
-        </>
-      )}
-    </>
-  );
+  // Listen for new events from CreateEventScreen
+  useEffect(() => {
+    return eventBus.on((newEvent) => {
+      setEvents((prev) => [newEvent, ...prev.filter((e) => e.id !== newEvent.id)]);
+    });
+  }, []);
+
+  if (loading) return <ActivityIndicator color={colors.primary} style={{ marginTop: 32 }} />;
+  if (error) return <ErrorHint onRetry={load} styles={styles} />;
+  if (!events.length)
+    return <EmptyHint icon="calendar-outline" text="No events yet" styles={styles} />;
+
+  return events.map((e) => <EventRow key={e.id} event={e} styles={styles} />);
 });
 
-function EmptyHint({ icon, text }) {
+const GlobalTab = memo(function GlobalTab({ userId, refreshKey, styles }) {
+  const { colors } = useTheme();
+  const [capsules, setCapsules] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const navigation = useNavigation();
+
+  const load = useCallback(() => {
+    setLoading(true);
+    setError(false);
+    getGlobalFeed()
+      .then((d) => setCapsules((d.capsules ?? []).map((c) => normalizeCapsule(c, userId))))
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { load(); }, [refreshKey]);
+
+  if (loading) return <ActivityIndicator color={colors.primary} style={{ marginTop: 32 }} />;
+  if (error) return <ErrorHint onRetry={load} styles={styles} />;
+  if (!capsules.length)
+    return <EmptyHint icon="earth-outline" text="No global capsules yet" styles={styles} />;
+
+  return capsules.map((c) => (
+    <DiscoverCapsuleCard
+      key={c.id}
+      capsule={c}
+      onPress={() =>
+        navigation.navigate(
+          c.status === "unlocked" ? ROUTES.UNLOCKED_CAPSULE : ROUTES.LOCKED_CAPSULE,
+          { capsule: c }
+        )
+      }
+      styles={styles}
+    />
+  ));
+});
+
+function EmptyHint({ icon, text, styles }) {
+  const { colors } = useTheme();
   return (
     <View style={styles.emptyBox}>
       <Ionicons name={icon} size={40} color={colors.border} />
@@ -290,17 +322,38 @@ function EmptyHint({ icon, text }) {
   );
 }
 
+function ErrorHint({ onRetry, styles }) {
+  const { colors } = useTheme();
+  return (
+    <Pressable onPress={onRetry} style={styles.errorBox}>
+      <Ionicons name="cloud-offline-outline" size={40} color={colors.border} />
+      <Text style={styles.errorText}>Could not load content</Text>
+      <Text style={styles.retryText}>Tap to retry</Text>
+    </Pressable>
+  );
+}
+
 // ─── Search results ───────────────────────────────────────────────────────────
 
-const SearchResults = memo(function SearchResults({ results, userId }) {
+const SearchResults = memo(function SearchResults({ results, userId, activeTab, styles }) {
   const navigation = useNavigation();
   const { capsules = [], people = [], events = [] } = results;
-  if (!capsules.length && !people.length && !events.length) {
-    return <EmptyHint icon="search-outline" text="No results found" />;
+
+  // Filter results based on active tab
+  const showCapsules = activeTab === "Friends" || activeTab === "Global";
+  const showEvents = activeTab === "Events";
+  const showPeople = activeTab === "Friends";
+
+  const hasCapsules = showCapsules && capsules.length > 0;
+  const hasEvents = showEvents && events.length > 0;
+  const hasPeople = showPeople && people.length > 0;
+
+  if (!hasCapsules && !hasEvents && !hasPeople) {
+    return <EmptyHint icon="search-outline" text="No results found" styles={styles} />;
   }
   return (
     <>
-      {capsules.length > 0 && (
+      {hasCapsules && (
         <>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>CAPSULES</Text>
@@ -317,28 +370,29 @@ const SearchResults = memo(function SearchResults({ results, userId }) {
                     { capsule: cap }
                   )
                 }
+                styles={styles}
               />
             );
           })}
         </>
       )}
-      {people.length > 0 && (
+      {hasPeople && (
         <>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>PEOPLE</Text>
           </View>
           {people.map((p) => (
-            <PersonRow key={p.id} person={p} />
+            <PersonRow key={p.id} person={p} styles={styles} />
           ))}
         </>
       )}
-      {events.length > 0 && (
+      {hasEvents && (
         <>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>EVENTS</Text>
           </View>
           {events.map((e) => (
-            <EventRow key={e.id} event={e} />
+            <EventRow key={e.id} event={e} styles={styles} />
           ))}
         </>
       )}
@@ -350,12 +404,28 @@ const SearchResults = memo(function SearchResults({ results, userId }) {
 
 export default function DiscoverScreen() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState("Trending");
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [activeTab, setActiveTab] = useState("Friends");
   const [searchText, setSearchText] = useState("");
   const [searchResults, setSearchResults] = useState(null);
   const [searching, setSearching] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
   const searchTimer = useRef(null);
   const searchVersionRef = useRef(0);
+
+  // Clean up search timer on unmount
+  useEffect(() => {
+    return () => clearTimeout(searchTimer.current);
+  }, []);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    setRefreshKey((k) => k + 1);
+    // Small delay to let tabs re-fetch
+    setTimeout(() => setRefreshing(false), 1000);
+  }, []);
 
   const handleSearchChange = (text) => {
     setSearchText(text);
@@ -392,6 +462,9 @@ export default function DiscoverScreen() {
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} />
+      }
     >
       {/* Search */}
       <View style={styles.searchBar}>
@@ -405,6 +478,7 @@ export default function DiscoverScreen() {
           autoCapitalize="none"
           autoCorrect={false}
           returnKeyType="search"
+          accessibilityLabel="Search"
         />
         {searchText.length > 0 && (
           <Pressable onPress={() => { setSearchText(""); setSearchResults(null); }}>
@@ -413,35 +487,36 @@ export default function DiscoverScreen() {
         )}
       </View>
 
-      {/* Tabs — hidden while searching */}
-      {!isSearching && (
-        <View style={styles.filterRow}>
-          {FILTER_TABS.map((tab) => (
-            <Pressable
-              key={tab}
-              style={[styles.filterTab, activeTab === tab && styles.filterTabActive]}
-              onPress={() => setActiveTab(tab)}
-            >
-              <Text style={[styles.filterTabText, activeTab === tab && styles.filterTabTextActive]}>
-                {tab}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
+      {/* Tabs */}
+      <View style={styles.filterRow}>
+        {FILTER_TABS.map((tab) => (
+          <Pressable
+            key={tab}
+            style={[styles.filterTab, activeTab === tab && styles.filterTabActive]}
+            onPress={() => setActiveTab(tab)}
+            accessibilityRole="tab"
+            accessibilityLabel={tab}
+            accessibilityState={{ selected: activeTab === tab }}
+          >
+            <Text style={[styles.filterTabText, activeTab === tab && styles.filterTabTextActive]}>
+              {tab}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
 
       {/* Content */}
       {isSearching ? (
         searching ? (
           <ActivityIndicator color={colors.primary} style={{ marginTop: 32 }} />
         ) : searchResults ? (
-          <SearchResults results={searchResults} userId={user?.id} />
+          <SearchResults results={searchResults} userId={user?.id} activeTab={activeTab} styles={styles} />
         ) : null
       ) : (
         <>
-          {activeTab === "Trending" && <TrendingTab userId={user?.id} />}
-          {activeTab === "Friends" && <FriendsTab userId={user?.id} />}
-          {activeTab === "Global" && <GlobalTab userId={user?.id} />}
+          {activeTab === "Friends" && <FriendsTab userId={user?.id} refreshKey={refreshKey} styles={styles} />}
+          {activeTab === "Events" && <EventsTab refreshKey={refreshKey} styles={styles} />}
+          {activeTab === "Global" && <GlobalTab userId={user?.id} refreshKey={refreshKey} styles={styles} />}
         </>
       )}
     </ScrollView>
@@ -450,9 +525,9 @@ export default function DiscoverScreen() {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  content: { paddingHorizontal: 20, paddingTop: 4, paddingBottom: 24 },
+  content: { paddingHorizontal: 20, paddingTop: 4, paddingBottom: 120 },
 
   searchBar: {
     flexDirection: "row",
@@ -484,44 +559,27 @@ const styles = StyleSheet.create({
   sectionHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10, marginTop: 8 },
   sectionTitle: { fontSize: 10, color: colors.mutedFg, letterSpacing: 2, textTransform: "uppercase", fontWeight: "500" },
 
-  featuredCard: {
-    backgroundColor: colors.card,
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: 16,
+  datePill: {
+    backgroundColor: `${colors.primary}15`,
+    paddingHorizontal: 10, paddingVertical: 5,
+    borderRadius: 20, borderWidth: 1,
+    borderColor: `${colors.primary}35`,
   },
-  featuredBadge: {
-    alignSelf: "flex-start",
-    backgroundColor: `${colors.primary}25`,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-    marginBottom: 12,
-  },
-  featuredBadgeText: { fontSize: 9, color: colors.primary, fontWeight: "700", letterSpacing: 1.5 },
-  featuredTitle: { fontSize: 20, fontWeight: "300", color: colors.foreground, marginBottom: 8, fontFamily: fonts.serif },
-  featuredDesc: { fontSize: 13, color: colors.mutedFg, lineHeight: 20, marginBottom: 16 },
-  featuredFooter: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  avatarRow: { flexDirection: "row", alignItems: "center" },
-  avatar: {
-    width: 26, height: 26, borderRadius: 13,
-    backgroundColor: colors.secondaryBackground,
-    alignItems: "center", justifyContent: "center",
-  },
-  avatarText: { fontSize: 10, fontWeight: "700", color: colors.foreground },
-  featuredFrom: { fontSize: 12, color: colors.mutedFg },
+  datePillText: { fontSize: 11, color: colors.primary, fontWeight: "500" },
 
   capsuleRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: colors.card,
-    borderRadius: 14,
+    backgroundColor: colors.background,
+    borderRadius: 16,
     padding: 14,
     borderWidth: 1,
     borderColor: colors.border,
     marginBottom: 8,
+  },
+  capsuleRowUnlocked: {
+    borderColor: `${colors.primary}35`,
+    backgroundColor: `${colors.primary}06`,
   },
   rowLock: {
     width: 34, height: 34, borderRadius: 17,
@@ -535,18 +593,25 @@ const styles = StyleSheet.create({
   rowMeta: { flexDirection: "row", alignItems: "center", gap: 4 },
   rowMetaText: { fontSize: 11, color: colors.mutedFg },
   rowDot: { fontSize: 11, color: colors.mutedFg },
-  typeBadge: {
+  statusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
     backgroundColor: colors.secondaryBackground,
-    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, marginLeft: 8,
+    paddingHorizontal: 9, paddingVertical: 5,
+    borderRadius: 20, marginLeft: 8,
+    borderWidth: 1, borderColor: colors.border,
   },
-  typeBadgeText: { fontSize: 9, fontWeight: "700", color: colors.mutedFg },
-  publicBadge: { backgroundColor: `${colors.primary}20`, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-  publicBadgeText: { fontSize: 9, fontWeight: "700", color: colors.primary, letterSpacing: 0.5 },
-
+  statusPillUnlocked: {
+    backgroundColor: `${colors.primary}15`,
+    borderColor: `${colors.primary}50`,
+  },
+  statusPillText: { fontSize: 10, fontWeight: "600", color: colors.mutedFg },
+  statusPillTextUnlocked: { color: colors.primary },
   eventRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: colors.card,
+    backgroundColor: colors.background,
     borderRadius: 14,
     padding: 14,
     borderWidth: 1,
@@ -559,16 +624,10 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
     marginRight: 12,
   },
-  joinBtn: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 14,
-  },
-  joinBtnText: { fontSize: 12, fontWeight: "700", color: colors.primaryFg },
-
   personRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: colors.card,
+    backgroundColor: colors.background,
     borderRadius: 14,
     padding: 14,
     borderWidth: 1,
@@ -593,4 +652,38 @@ const styles = StyleSheet.create({
 
   emptyBox: { alignItems: "center", gap: 12, marginTop: 48 },
   emptyText: { fontSize: 14, color: colors.mutedFg, textAlign: "center" },
+  errorBox: { alignItems: "center", gap: 8, marginTop: 48 },
+  errorText: { fontSize: 14, color: colors.mutedFg },
+  retryText: { fontSize: 12, color: colors.primary },
+
+  discoverCard: {
+    backgroundColor: colors.background,
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: 12,
+    marginBottom: 12,
+  },
+  cardHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
+  cardAvatar: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: colors.secondaryBackground,
+    borderWidth: 1.5, borderColor: `${colors.primary}40`,
+    alignItems: "center", justifyContent: "center",
+  },
+  cardAvatarImg: { width: 36, height: 36, borderRadius: 18 },
+  cardAvatarText: { fontSize: 13, fontWeight: "700", color: colors.foreground },
+  cardSenderInfo: { flex: 1, gap: 2 },
+  cardSenderName: { fontSize: 14, fontWeight: "500", color: colors.foreground },
+  cardSealedDate: { fontSize: 11, color: colors.mutedFg },
+  discoverCardTitle: {
+    fontSize: 16, fontWeight: "300", color: colors.foreground,
+    fontFamily: fonts.serif, lineHeight: 23,
+  },
+  discoverCardDesc: {
+    fontSize: 12, color: colors.mutedFg, lineHeight: 18, marginTop: -4,
+  },
+  cardFooter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  typeLabel: { fontSize: 10, color: colors.mutedFg, letterSpacing: 1, textTransform: "uppercase", fontWeight: "500" },
 });

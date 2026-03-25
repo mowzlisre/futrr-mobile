@@ -1,7 +1,11 @@
 import { View, Text, StyleSheet } from "react-native";
-import { colors } from "@/constants";
+import { useMemo } from "react";
+import { useTheme } from "@/hooks/useTheme";
 
 export function Divider() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+
   return (
     <View style={styles.dividerRow}>
       <View style={styles.dividerLine} />
@@ -11,7 +15,7 @@ export function Divider() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   dividerRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -28,6 +32,7 @@ const styles = StyleSheet.create({
   dividerText: {
     color: colors.mutedFg,
     fontSize: 11,
+    lineHeight: 16,
     letterSpacing: 1.5,
     textTransform: "uppercase",
   },
