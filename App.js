@@ -6,6 +6,7 @@ import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider } from "@/context/AuthContext";
 import { ThemeProvider } from "@/context/ThemeContext";
+import { TourProvider } from "@/context/TourContext";
 import { useTheme } from "@/hooks/useTheme";
 import RootNavigator from "@/navigation/RootNavigator";
 
@@ -59,9 +60,11 @@ export default function App() {
 
   return (
     <ThemeProvider>
-      <AuthProvider>
-        <AppInner />
-      </AuthProvider>
+      <TourProvider>
+        <AuthProvider>
+          <AppInner />
+        </AuthProvider>
+      </TourProvider>
     </ThemeProvider>
   );
 }

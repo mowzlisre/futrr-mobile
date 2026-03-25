@@ -1,13 +1,14 @@
 import { View, Text, Pressable, StyleSheet } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { TABS, ROUTES } from "@/constants";
 import { useTheme } from "@/hooks/useTheme";
+import { useTour } from "@/hooks/useTour";
 import { TopNavigation } from "@/components/navigation/TopNavigation";
 import { BottomNavigation } from "@/components/navigation/BottomNavigation";
+import { TourOverlay, FabTooltip } from "@/components/TourOverlay";
 import { getNotifications } from "@/services/notifications";
 import VaultScreen from "@/screens/app/VaultScreen";
 import DiscoverScreen from "@/screens/app/DiscoverScreen";
@@ -17,6 +18,7 @@ import ProfileScreen from "@/screens/app/ProfileScreen";
 export default function MainApp() {
   const navigation = useNavigation();
   const { colors } = useTheme();
+  const { tourActive, tourTarget } = useTour();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [activeTab, setActiveTab] = useState(TABS.VAULT);
   const [activeTitle, setActiveTitle] = useState("Your Capsules");
@@ -37,6 +39,13 @@ export default function MainApp() {
     setActiveTitle(tab.label);
   };
 
+  const handleTourSwitchTab = useCallback((tabId) => {
+    setActiveTab(tabId);
+  }, []);
+
+  // Elevate header above blur overlay when tour targets a header icon
+  const isHeaderTarget = tourActive && (tourTarget === "favorites" || tourTarget === "atlas");
+
   const getRightElement = () => {
     if (activeTab === TABS.VAULT) {
       return (
@@ -46,7 +55,7 @@ export default function MainApp() {
             onPress={() => navigation.navigate(ROUTES.FAVORITES)}
             style={styles.headerBtn}
           >
-            <Ionicons name="heart-outline" size={22} color={colors.mutedFg} />
+            <Ionicons name={tourTarget === "favorites" ? "heart" : "heart-outline"} size={22} color={colors.mutedFg} />
           </Pressable>
 
           {/* Bell → Notifications */}
@@ -81,7 +90,7 @@ export default function MainApp() {
             onPress={() => navigation.navigate(ROUTES.ATLAS)}
             style={styles.headerBtn}
           >
-            <Ionicons name="earth-outline" size={24} color={colors.mutedFg} />
+            <Ionicons name={tourTarget === "atlas" ? "earth" : "earth-outline"} size={24} color={colors.mutedFg} />
           </Pressable>
         </View>
       );
@@ -128,15 +137,19 @@ export default function MainApp() {
       edges={["top"]}
     >
       <View style={{ flex: 1 }}>
-        <TopNavigation
-          activeTab={activeTab}
-          activeTitle={activeTitle}
-          rightElement={getRightElement()}
-        />
+        <View style={isHeaderTarget ? { zIndex: 12 } : undefined}>
+          <TopNavigation
+            activeTab={activeTab}
+            activeTitle={activeTitle}
+            rightElement={getRightElement()}
+          />
+        </View>
         <View style={{ flex: 1 }}>
           {renderScreen()}
         </View>
         <BottomNavigation activeTab={activeTab} onTabChange={handleTabChange} />
+        <FabTooltip />
+        <TourOverlay onSwitchTab={handleTourSwitchTab} />
       </View>
     </SafeAreaView>
   );
@@ -149,7 +162,7 @@ const makeStyles = (colors) => StyleSheet.create({
     left: 0,
     right: 0,
     height: 120,
-    
+
   },
   headerActions: {
     flexDirection: "row",

@@ -21,13 +21,14 @@ export function AuthProvider({ children }) {
   };
 
   const logout = async () => {
-    try {
-      const refresh = await getRefreshToken();
-      if (refresh) await logoutUser(refresh);
-    } catch (_) {}
+    const refresh = await getRefreshToken();
+    const access = await getAccessToken();
+    // Clear local state and tokens first so the UI transitions immediately
     await clearTokens();
     setUser(null);
     setIsLoggedIn(false);
+    // Fire-and-forget server-side blacklist (bypasses interceptor)
+    if (refresh && access) logoutUser(refresh, access).catch(() => {});
   };
 
   // Force-logout when a token refresh fails (expired/invalid refresh token)

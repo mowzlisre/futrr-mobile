@@ -1,6 +1,6 @@
 import { StyleSheet } from "react-native";
 
-export const makeStyles = (colors) =>
+export const makeStyles = (colors, isDark) =>
   StyleSheet.create({
     container: {
       flex: 1,
@@ -72,9 +72,9 @@ export const makeStyles = (colors) =>
     },
 
     loginText: {
-      color: colors.primaryFg,
+      color: "#000000",
       fontSize: 14,
-      fontWeight: "700",
+      fontWeight: "500",
       letterSpacing: 2,
       textTransform: "uppercase",
     },
@@ -88,11 +88,11 @@ export const makeStyles = (colors) =>
       borderColor: colors.border,
       borderRadius: 25,
       paddingVertical: 14,
-      backgroundColor: "rgba(255,255,255,0.03)",
+      backgroundColor: isDark ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.6)",
     },
 
     socialButtonText: {
-      color: colors.mutedFg,
+      color: colors.foreground,
       fontSize: 14,
       letterSpacing: 0.2,
     },
@@ -122,6 +122,7 @@ export const makeStyles = (colors) =>
       left: 0,
       right: 0,
       paddingHorizontal: 24,
+      paddingBottom: 20
     },
 
     alreadyHave: {

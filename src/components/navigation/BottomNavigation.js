@@ -6,13 +6,14 @@ import { useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { TABS, ROUTES } from "@/constants";
 import { useTheme } from "@/hooks/useTheme";
+import { useTour } from "@/hooks/useTour";
 import { hapticLight, hapticMedium } from "@/utils/haptics";
 
 const TABS_CONFIG = [
-  { id: TABS.VAULT, icon: "albums-outline", label: "Your Capsules", active: "albums", name: "Vault" },
-  { id: TABS.DISCOVER, icon: "search-outline", label: "Around You", active: "search", name: "Discover" },
-  { id: TABS.TIMELINE, icon: "time-outline", label: "Your Timeline", active: "time", name: "Timeline" },
-  { id: TABS.PROFILE, icon: "person-outline", label: "Your Profile", active: "person", name: "Profile" },
+  { id: TABS.VAULT, icon: "albums-outline", label: "Your Capsules", active: "albums", name: "Vault", tour: "vault" },
+  { id: TABS.DISCOVER, icon: "search-outline", label: "Around You", active: "search", name: "Discover", tour: "discover" },
+  { id: TABS.TIMELINE, icon: "time-outline", label: "Your Timeline", active: "time", name: "Timeline", tour: "timeline" },
+  { id: TABS.PROFILE, icon: "person-outline", label: "Your Profile", active: "person", name: "Profile", tour: null },
 ];
 
 function TabItem({ tab, isActive, onPress, colors, styles }) {
@@ -67,7 +68,13 @@ export function BottomNavigation({ activeTab, onTabChange }) {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
+  const { tourActive, tourTarget } = useTour();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
+
+  // Elevate above blur overlay (zIndex 10) when tour targets bottom nav or fab
+  const isBottomTarget = tourActive && ["vault", "fab", "discover", "timeline"].includes(tourTarget);
+  // Hide FAB until it's the fab step
+  const hideFab = tourActive && tourTarget !== "fab";
 
   const handleFabPressIn = () => {
     Animated.spring(fabScale, {
@@ -95,7 +102,14 @@ export function BottomNavigation({ activeTab, onTabChange }) {
   const bottomPad = Math.max(insets.bottom, 12);
 
   return (
-    <View style={[styles.container, { paddingBottom: bottomPad }]}>
+    <View
+      style={[
+        styles.container,
+        { paddingBottom: bottomPad },
+        isBottomTarget && { zIndex: 12 },
+      ]}
+      pointerEvents={tourActive ? "none" : "auto"}
+    >
       {/* Pill with 4 icons */}
       <BlurView intensity={isDark ? 60 : 80} tint={isDark ? "dark" : "light"} style={styles.navBar}>
         {TABS_CONFIG.map((tab) => (
@@ -110,8 +124,14 @@ export function BottomNavigation({ activeTab, onTabChange }) {
         ))}
       </BlurView>
 
-      {/* Separate rounded FAB */}
-      <Animated.View style={[styles.fabWrapper, { transform: [{ scale: fabScale }] }]}>
+      {/* Separate rounded FAB — hidden during tour until the fab step */}
+      <Animated.View
+        style={[
+          styles.fabWrapper,
+          { transform: [{ scale: fabScale }] },
+          hideFab && { opacity: 0 },
+        ]}
+      >
         <Pressable
           onPressIn={handleFabPressIn}
           onPressOut={handleFabPressOut}
@@ -150,6 +170,13 @@ const makeStyles = (colors, isDark) => StyleSheet.create({
     borderColor: isDark ? "rgba(255,255,255,0.12)" : "transparent",
     overflow: "hidden",
     backgroundColor: isDark ? "rgba(26, 24, 38, 0.55)" : "rgba(255, 255, 255, 0.21)",
+    shadowColor: "#000",
+    shadowOpacity: isDark ? 0 : 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: isDark ? 0 : 4,
+
+    boxShadow: "0px 1px 12px rgba(0, 0, 0, 0.03)",
   },
   tab: {
     flex: 1,

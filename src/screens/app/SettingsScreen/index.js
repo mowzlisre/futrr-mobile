@@ -14,13 +14,15 @@ import { useNavigation } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/hooks/useAuth";
+import { useTour } from "@/hooks/useTour";
 import { hapticWarning, hapticLight } from "@/utils/haptics";
 import { getProfile, updateProfile, deleteAccount } from "@/services/user";
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
   const { logout } = useAuth();
-  const { colors, isDark, toggle } = useTheme();
+  const { startTour } = useTour();
+  const { colors, isDark, mode, setMode } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [isPrivate, setIsPrivate] = useState(false);
   const [privacyLoading, setPrivacyLoading] = useState(false);
@@ -46,9 +48,9 @@ export default function SettingsScreen() {
     }
   };
 
-  const handleThemeToggle = () => {
+  const handleThemeChange = (newMode) => {
     hapticLight();
-    toggle();
+    setMode(newMode);
   };
 
   const handleDeleteAccount = () => {
@@ -105,7 +107,7 @@ export default function SettingsScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        {/* Notifications section */}
+        {/* General section */}
         <View style={styles.menuSection}>
           {[
             { icon: "notifications-outline", label: "Notifications" },
@@ -131,6 +133,25 @@ export default function SettingsScreen() {
           ))}
         </View>
 
+        {/* Quick Tour */}
+        <Pressable
+          onPress={() => { navigation.goBack(); startTour(); }}
+          style={({ pressed }) => [styles.tourButton, pressed && { opacity: 0.7 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Start quick tour"
+        >
+          <View style={styles.menuItemLeft}>
+            <View style={[styles.menuIconWrap, { backgroundColor: `${colors.primary}15` }]}>
+              <Ionicons name="compass-outline" size={20} color={colors.primary} />
+            </View>
+            <View>
+              <Text style={styles.menuItemLabel}>Quick Tour</Text>
+              <Text style={styles.menuItemSub}>Replay the app walkthrough</Text>
+            </View>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={colors.mutedFg} />
+        </Pressable>
+
         {/* Appearance section */}
         <Text style={styles.sectionTitle}>APPEARANCE</Text>
         <View style={styles.menuSection}>
@@ -139,22 +160,37 @@ export default function SettingsScreen() {
               <View style={styles.menuIconWrap}>
                 <Ionicons name={isDark ? "moon-outline" : "sunny-outline"} size={20} color={colors.mutedFg} />
               </View>
-              <View>
-                <Text style={styles.menuItemLabel}>Dark Mode</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.menuItemLabel}>Theme</Text>
                 <Text style={styles.menuItemSub}>
-                  {isDark ? "Dark theme active" : "Light theme active"}
+                  {mode === "system" ? "Follows system" : isDark ? "Dark theme" : "Light theme"}
                 </Text>
               </View>
             </View>
-            <Switch
-              value={isDark}
-              onValueChange={handleThemeToggle}
-              trackColor={{ false: colors.border, true: `${colors.primary}80` }}
-              thumbColor={isDark ? colors.primary : colors.mutedFg}
-              style={{ transform: [{ scale: 0.8 }] }}
-              accessibilityLabel="Dark mode toggle"
-              accessibilityRole="switch"
-            />
+            <View style={styles.segmentedControl}>
+              {[
+                { value: "light", icon: "sunny-outline" },
+                { value: "dark", icon: "moon-outline" },
+                { value: "system", icon: "phone-portrait-outline" },
+              ].map((opt) => (
+                <Pressable
+                  key={opt.value}
+                  onPress={() => handleThemeChange(opt.value)}
+                  style={[
+                    styles.segmentOption,
+                    mode === opt.value && styles.segmentOptionActive,
+                  ]}
+                  accessibilityLabel={`${opt.value} theme`}
+                  accessibilityRole="button"
+                >
+                  <Ionicons
+                    name={opt.icon}
+                    size={15}
+                    color={mode === opt.value ? colors.primary : colors.mutedFg}
+                  />
+                </Pressable>
+              ))}
+            </View>
           </View>
         </View>
 
@@ -266,6 +302,18 @@ const makeStyles = (colors) =>
       paddingTop: 8,
       paddingBottom: 32,
     },
+    tourButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      backgroundColor: colors.card,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      marginBottom: 20,
+    },
     sectionTitle: {
       fontSize: 10,
       lineHeight: 14,
@@ -356,6 +404,25 @@ const makeStyles = (colors) =>
       fontSize: 13,
       color: colors.error,
       opacity: 0.7,
+    },
+    segmentedControl: {
+      flexDirection: "row",
+      backgroundColor: colors.secondaryBackground,
+      borderRadius: 10,
+      padding: 3,
+      gap: 2,
+    },
+    segmentOption: {
+      width: 34,
+      height: 30,
+      borderRadius: 8,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    segmentOptionActive: {
+      backgroundColor: colors.card,
+      borderWidth: 1,
+      borderColor: colors.border,
     },
     version: {
       textAlign: "center",

@@ -55,8 +55,8 @@ const makeSealStyles = (colors) =>
 
 export default function LoginScreen() {
   const { login } = useContext(AuthContext);
-  const { colors } = useTheme();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
   const sealStyles = useMemo(() => makeSealStyles(colors), [colors]);
   const navigation = useNavigation();
   const [identifier, setIdentifier] = useState("");
@@ -120,12 +120,12 @@ export default function LoginScreen() {
   return (
     <View style={styles.container}>
       <LinearGradient
-        colors={["#0A0A0F", "#0E0E18", "#0A0A0F"]}
+        colors={isDark ? ["#0A0A0F", "#0E0E18", "#0A0A0F"] : [colors.background, "#EDE8E0", colors.background]}
         locations={[0, 0.5, 1]}
         style={StyleSheet.absoluteFill}
       />
 
-      <ParticleField />
+      <ParticleField isDark={isDark} />
 
       <Animated.View style={[styles.centerWrapper, { opacity: fadeIn, transform: [{ translateY: slideUp }] }]}>
         {/* Brand */}
@@ -168,23 +168,7 @@ export default function LoginScreen() {
             </LinearGradient>
           </Pressable>
 
-          <Divider />
-
-          <Pressable
-            style={styles.socialButton}
-            onPress={() => navigation.navigate(ROUTES.ONBOARDING, { startStep: 3, isOAuthFlow: true, oauthProvider: "apple" })}
-          >
-            <Ionicons name="logo-apple" size={22} color={colors.foreground} />
-            <Text style={styles.socialButtonText}>Continue with Apple</Text>
-          </Pressable>
-
-          <Pressable
-            style={[styles.socialButton, { marginTop: 10 }]}
-            onPress={() => navigation.navigate(ROUTES.ONBOARDING, { startStep: 3, isOAuthFlow: true, oauthProvider: "google" })}
-          >
-            <Ionicons name="logo-google" size={20} color={colors.primary} />
-            <Text style={styles.socialButtonText}>Continue with Google</Text>
-          </Pressable>
+          
 
           <View style={styles.signupRow}>
             <Text style={styles.signupText}>Don't have an account?</Text>
@@ -216,12 +200,14 @@ export default function LoginScreen() {
           </Pressable>
 
           <Pressable
-            style={[styles.socialButton, { marginTop: 10, marginBottom: 16 }]}
+            style={[styles.socialButton, { marginTop: 10, marginBottom: 10 }]}
             onPress={() => navigation.navigate(ROUTES.ONBOARDING, { startStep: 3, isOAuthFlow: true, oauthProvider: "google" })}
           >
             <Ionicons name="logo-google" size={18} color={colors.foreground} />
             <Text style={styles.socialButtonText}>Continue with Google</Text>
           </Pressable>
+
+          <Divider />
 
           <Pressable
             style={({ pressed }) => [styles.loginButton, pressed && styles.loginButtonPressed]}
@@ -233,13 +219,13 @@ export default function LoginScreen() {
               end={{ x: 1, y: 0 }}
               style={styles.loginGradient}
             >
-              <Text style={styles.loginText}>ENTER THE VAULT</Text>
+              <Text style={styles.loginText}>LOGIN WITH EMAIL</Text>
             </LinearGradient>
           </Pressable>
         </View>
 
         <Pressable onPress={() => navigation.navigate(ROUTES.ONBOARDING)} style={{ alignItems: "center", marginBottom: 16 }}>
-          <Text style={styles.alreadyHave}>I ALREADY HAVE AN ACCOUNT</Text>
+          <Text style={styles.alreadyHave}>I DON'T HAVE AN ACCOUNT</Text>
         </Pressable>
 
         <Text style={styles.bottomLabel}>sealed with futrr</Text>

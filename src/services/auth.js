@@ -1,3 +1,4 @@
+import axios from "axios";
 import api from "./api";
 
 export const loginUser = async (identifier, password) => {
@@ -9,9 +10,15 @@ export const loginUser = async (identifier, password) => {
   }
 };
 
-export const logoutUser = async (refreshToken) => {
+export const logoutUser = async (refreshToken, accessToken) => {
   try {
-    await api.post("/users/logout/", { refresh: refreshToken });
+    // Use raw axios to bypass the interceptor's token-refresh logic,
+    // which would fail after tokens are cleared locally.
+    await axios.post(
+      `${api.defaults.baseURL}/users/logout/`,
+      { refresh: refreshToken },
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
   } catch (_) {
     // ignore — tokens are cleared locally regardless
   }

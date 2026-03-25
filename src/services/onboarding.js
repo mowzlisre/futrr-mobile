@@ -18,6 +18,15 @@ export const verifyOTP = async (email, otp) => {
   }
 };
 
+export const checkEmail = async (email) => {
+  try {
+    const res = await api.get("/users/check-email/", { params: { email } });
+    return res.data;
+  } catch (err) {
+    throw err.response?.data || { error: "Check failed" };
+  }
+};
+
 export const checkUsername = async (username) => {
   try {
     const res = await api.get("/users/check-username/", { params: { username } });

@@ -5,8 +5,8 @@ import { useTheme } from "@/hooks/useTheme";
 export function FutrrInput({ placeholder, value, onChangeText, secureTextEntry = false }) {
   const [focused, setFocused] = useState(false);
   const borderAnim = useRef(new Animated.Value(0)).current;
-  const { colors } = useTheme();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
 
   useEffect(() => {
     Animated.timing(borderAnim, {
@@ -19,7 +19,10 @@ export function FutrrInput({ placeholder, value, onChangeText, secureTextEntry =
 
   const borderColor = borderAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: ["rgba(255,255,255,0.08)", "rgba(234,166,70,0.5)"],
+    outputRange: [
+      isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.10)",
+      "rgba(234,166,70,0.5)",
+    ],
   });
   const shadowOpacity = borderAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.3] });
 
@@ -46,14 +49,14 @@ export function FutrrInput({ placeholder, value, onChangeText, secureTextEntry =
   );
 }
 
-const makeStyles = (colors) => StyleSheet.create({
+const makeStyles = (colors, isDark) => StyleSheet.create({
   inputWrapper: {
     borderRadius: 25,
     borderWidth: 1,
     overflow: "hidden",
   },
   input: {
-    backgroundColor: "rgba(255,255,255,0.05)",
+    backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
     paddingHorizontal: 18,
     paddingVertical: 15,
     color: colors.foreground,
