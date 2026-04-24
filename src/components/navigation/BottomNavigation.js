@@ -7,7 +7,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { TABS, ROUTES } from "@/constants";
 import { useTheme } from "@/hooks/useTheme";
 import { useTour } from "@/hooks/useTour";
-import { hapticLight, hapticMedium } from "@/utils/haptics";
+import { useQuota } from "@/hooks/useQuota";
+import { hapticLight, hapticMedium, hapticWarning } from "@/utils/haptics";
 
 const TABS_CONFIG = [
   { id: TABS.VAULT, icon: "albums-outline", label: "Your Capsules", active: "albums", name: "Vault", tour: "vault" },
@@ -69,6 +70,7 @@ export function BottomNavigation({ activeTab, onTabChange }) {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
   const { tourActive, tourTarget } = useTour();
+  const { capsuleLimitReached } = useQuota();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
 
   // Elevate above blur overlay (zIndex 10) when tour targets bottom nav or fab
@@ -95,6 +97,10 @@ export function BottomNavigation({ activeTab, onTabChange }) {
   };
 
   const handleFabPress = () => {
+    if (capsuleLimitReached) {
+      hapticWarning();
+      return;
+    }
     hapticMedium();
     navigation.navigate(ROUTES.CREATE_CAPSULE);
   };
@@ -133,16 +139,25 @@ export function BottomNavigation({ activeTab, onTabChange }) {
         ]}
       >
         <Pressable
-          onPressIn={handleFabPressIn}
-          onPressOut={handleFabPressOut}
+          onPressIn={capsuleLimitReached ? undefined : handleFabPressIn}
+          onPressOut={capsuleLimitReached ? undefined : handleFabPressOut}
           onPress={handleFabPress}
-          style={styles.fab}
+          style={[styles.fab, capsuleLimitReached && styles.fabDisabled]}
           accessibilityRole="button"
-          accessibilityLabel="Create new capsule"
+          accessibilityLabel={capsuleLimitReached ? "Weekly capsule limit reached" : "Create new capsule"}
         >
-          <View style={styles.fabRing} />
-          <Ionicons name="add" size={28} color={colors.primaryFg} />
+          <View style={[styles.fabRing, capsuleLimitReached && { borderColor: "rgba(255,255,255,0.15)" }]} />
+          <Ionicons
+            name={capsuleLimitReached ? "lock-closed" : "add"}
+            size={capsuleLimitReached ? 22 : 28}
+            color={capsuleLimitReached ? "rgba(255,255,255,0.5)" : colors.primaryFg}
+          />
         </Pressable>
+        {capsuleLimitReached && (
+          <View style={styles.limitLabel}>
+            <Text style={styles.limitLabelText} numberOfLines={1}>Weekly limit reached</Text>
+          </View>
+        )}
       </Animated.View>
     </View>
   );
@@ -205,7 +220,7 @@ const makeStyles = (colors, isDark) => StyleSheet.create({
   },
   fabWrapper: {
     width: 60,
-    height: 60,
+    alignItems: "center",
   },
   fab: {
     width: 60,
@@ -214,6 +229,9 @@ const makeStyles = (colors, isDark) => StyleSheet.create({
     backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
+  },
+  fabDisabled: {
+    backgroundColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)",
   },
   fabRing: {
     position: "absolute",
@@ -224,5 +242,20 @@ const makeStyles = (colors, isDark) => StyleSheet.create({
     borderRadius: 32,
     borderWidth: 1.5,
     borderColor: isDark ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.35)",
+  },
+  limitLabel: {
+    marginTop: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: isDark ? "rgba(239,83,80,0.18)" : "rgba(239,83,80,0.12)",
+    maxWidth: 90,
+  },
+  limitLabelText: {
+    fontSize: 9,
+    color: "#EF5350",
+    fontWeight: "600",
+    textAlign: "center",
+    letterSpacing: 0.2,
   },
 });

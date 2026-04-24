@@ -6,6 +6,7 @@ import { useNavigation } from "@react-navigation/native";
 import { TABS, ROUTES } from "@/constants";
 import { useTheme } from "@/hooks/useTheme";
 import { useTour } from "@/hooks/useTour";
+import { useQuota } from "@/hooks/useQuota";
 import { TopNavigation } from "@/components/navigation/TopNavigation";
 import { BottomNavigation } from "@/components/navigation/BottomNavigation";
 import { TourOverlay, FabTooltip } from "@/components/TourOverlay";
@@ -19,6 +20,7 @@ export default function MainApp() {
   const navigation = useNavigation();
   const { colors } = useTheme();
   const { tourActive, tourTarget } = useTour();
+  const { eventLimitReached } = useQuota();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [activeTab, setActiveTab] = useState(TABS.VAULT);
   const [activeTitle, setActiveTitle] = useState("Your Capsules");
@@ -80,12 +82,27 @@ export default function MainApp() {
     if (activeTab === TABS.DISCOVER) {
       return (
         <View style={styles.headerActions}>
-          <Pressable
-            onPress={() => navigation.navigate(ROUTES.CREATE_EVENT)}
-            style={styles.headerBtn}
-          >
-            <Ionicons name="add-circle-outline" size={22} color={colors.mutedFg} />
-          </Pressable>
+          <View>
+            <Pressable
+              onPress={() => {
+                if (!eventLimitReached) navigation.navigate(ROUTES.CREATE_EVENT);
+              }}
+              style={[styles.headerBtn, eventLimitReached && styles.headerBtnDisabled]}
+              accessibilityRole="button"
+              accessibilityLabel={eventLimitReached ? "Weekly event limit reached" : "Create event"}
+            >
+              <Ionicons
+                name={eventLimitReached ? "add-circle" : "add-circle-outline"}
+                size={22}
+                color={eventLimitReached ? colors.border : colors.mutedFg}
+              />
+            </Pressable>
+            {eventLimitReached && (
+              <View style={styles.headerLimitBadge}>
+                <Text style={styles.headerLimitText}>Limit</Text>
+              </View>
+            )}
+          </View>
           <Pressable
             onPress={() => navigation.navigate(ROUTES.ATLAS)}
             style={styles.headerBtn}
@@ -175,6 +192,22 @@ const makeStyles = (colors) => StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
+  },
+  headerBtnDisabled: {
+    opacity: 0.4,
+  },
+  headerLimitBadge: {
+    position: "absolute",
+    bottom: -2,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+  },
+  headerLimitText: {
+    fontSize: 8,
+    color: "#EF5350",
+    fontWeight: "700",
+    letterSpacing: 0.3,
   },
   badge: {
     position: "absolute",

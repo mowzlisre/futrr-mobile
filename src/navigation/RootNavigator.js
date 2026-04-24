@@ -1,10 +1,11 @@
-import { View, Text } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { ROUTES } from "@/constants";
 import { useAuth } from "@/hooks/useAuth";
 import { useTheme } from "@/hooks/useTheme";
+import SplashLoader from "@/components/SplashLoader";
 import LoginScreen from "@/screens/auth/LoginScreen";
 import OnboardingScreen from "@/screens/auth/OnboardingScreen";
+import ForgotPasswordScreen from "@/screens/auth/ForgotPasswordScreen";
 import MainApp from "@/screens/app/MainApp";
 import LockedCapsuleScreen from "@/screens/app/LockedCapsuleScreen";
 import UnlockedCapsuleScreen from "@/screens/app/UnlockedCapsuleScreen";
@@ -18,6 +19,7 @@ import NotificationsScreen from "@/screens/app/NotificationsScreen";
 import SettingsScreen from "@/screens/app/SettingsScreen";
 import FollowRequestsScreen from "@/screens/app/FollowRequestsScreen";
 import UserProfileScreen from "@/screens/app/UserProfileScreen";
+import QuotaScreen from "@/screens/app/QuotaScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -26,18 +28,7 @@ export default function RootNavigator() {
   const { colors } = useTheme();
 
   if (initializing) {
-    return (
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: colors.background,
-          justifyContent: "center",
-          alignItems: "center",
-        }}
-      >
-        <Text style={{ fontSize: 16, color: colors.foreground }}>Loading...</Text>
-      </View>
-    );
+    return <SplashLoader />;
   }
 
   return (
@@ -53,6 +44,7 @@ export default function RootNavigator() {
           <Stack.Screen name={ROUTES.SETTINGS} component={SettingsScreen} />
           <Stack.Screen name={ROUTES.FOLLOW_REQUESTS} component={FollowRequestsScreen} />
           <Stack.Screen name={ROUTES.USER_PROFILE} component={UserProfileScreen} />
+          <Stack.Screen name={ROUTES.QUOTA} component={QuotaScreen} />
           <Stack.Screen
             name={ROUTES.CREATE_CAPSULE}
             component={CreateCapsuleScreen}
@@ -80,6 +72,7 @@ export default function RootNavigator() {
         <>
           <Stack.Screen name={ROUTES.LOGIN} component={LoginScreen} />
           <Stack.Screen name={ROUTES.ONBOARDING} component={OnboardingScreen} />
+          <Stack.Screen name={ROUTES.FORGOT_PASSWORD} component={ForgotPasswordScreen} />
         </>
       )}
     </Stack.Navigator>

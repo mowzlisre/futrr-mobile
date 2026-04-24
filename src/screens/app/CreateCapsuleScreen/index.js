@@ -38,6 +38,7 @@ import { createCapsule, addCapsuleContent } from "@/services/capsules";
 import { searchUsers } from "@/services/user";
 import { generatePassphrase, storePassphrase } from "@/utils/passphrase";
 import { useAuth } from "@/hooks/useAuth";
+import { useQuota } from "@/hooks/useQuota";
 import { normalizeCapsule } from "@/utils/normalize";
 import { vaultBus } from "@/utils/vaultBus";
 import { hapticSuccess, hapticError } from "@/utils/haptics";
@@ -610,6 +611,7 @@ export default function CreateCapsuleScreen() {
   const navigation = useNavigation();
   const route = useRoute();
   const { user } = useAuth();
+  const { refreshQuota } = useQuota();
 
   // Event participation context (passed from EventDetailScreen)
   const event = route.params?.event || null;
@@ -834,6 +836,7 @@ export default function CreateCapsuleScreen() {
       }
 
       hapticSuccess();
+      refreshQuota();
       if (generatedPassphrase) {
         await storePassphrase(capsule.id, generatedPassphrase);
         setRevealedPassphrase(generatedPassphrase);

@@ -7,10 +7,17 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider } from "@/context/AuthContext";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { TourProvider } from "@/context/TourContext";
+import { QuotaProvider } from "@/context/QuotaContext";
 import { useTheme } from "@/hooks/useTheme";
+import { useAuth } from "@/hooks/useAuth";
 import RootNavigator from "@/navigation/RootNavigator";
 
 SplashScreen.preventAutoHideAsync();
+
+function QuotaWrapper({ children }) {
+  const { isLoggedIn } = useAuth();
+  return <QuotaProvider isLoggedIn={isLoggedIn}>{children}</QuotaProvider>;
+}
 
 function AppInner() {
   const { colors, isDark } = useTheme();
@@ -35,10 +42,12 @@ function AppInner() {
 
   return (
     <SafeAreaProvider>
-      <NavigationContainer theme={navTheme}>
-        <RootNavigator />
-      </NavigationContainer>
-      <StatusBar style={isDark ? "light" : "dark"} />
+      <QuotaWrapper>
+        <NavigationContainer theme={navTheme}>
+          <RootNavigator />
+        </NavigationContainer>
+        <StatusBar style={isDark ? "light" : "dark"} />
+      </QuotaWrapper>
     </SafeAreaProvider>
   );
 }

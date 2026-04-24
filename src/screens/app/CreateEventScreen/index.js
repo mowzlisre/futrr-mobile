@@ -25,6 +25,7 @@ import { hapticSuccess } from "@/utils/haptics";
 import { eventBus } from "@/utils/eventBus";
 import { createEvent, checkEventSlug } from "@/services/events";
 import { useAuth } from "@/hooks/useAuth";
+import { useQuota } from "@/hooks/useQuota";
 
 // ─── Event type options ────────────────────────────────────────────────────────
 
@@ -123,6 +124,7 @@ export default function CreateEventScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const navigation = useNavigation();
   const { user } = useAuth();
+  const { refreshQuota } = useQuota();
 
   // ── Core fields ──────────────────────────────────────────────────────────
   const [title, setTitle] = useState("");
@@ -304,6 +306,7 @@ export default function CreateEventScreen() {
       }, bannerUri);
       eventBus.emit(createdEvent);
       hapticSuccess();
+      refreshQuota();
       Alert.alert("Event created!", "Your event has been created.", [
         { text: "OK", onPress: () => navigation.goBack() },
       ]);

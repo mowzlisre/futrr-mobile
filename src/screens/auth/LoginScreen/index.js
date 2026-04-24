@@ -150,7 +150,9 @@ export default function LoginScreen() {
             />
           </View>
 
-          <Text style={styles.forgotPassword}>Forgot password?</Text>
+          <Pressable onPress={() => navigation.navigate(ROUTES.FORGOT_PASSWORD)}>
+            <Text style={styles.forgotPassword}>Forgot password?</Text>
+          </Pressable>
 
           <Pressable
             style={({ pressed }) => [styles.loginButton, pressed && styles.loginButtonPressed]}

@@ -14,6 +14,8 @@ export const ROUTES = {
   SETTINGS: "Settings",
   FOLLOW_REQUESTS: "FollowRequests",
   USER_PROFILE: "UserProfile",
+  FORGOT_PASSWORD: "ForgotPassword",
+  QUOTA: "Quota",
 };
 
 export const TABS = {

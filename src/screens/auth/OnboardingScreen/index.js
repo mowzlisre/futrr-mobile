@@ -291,15 +291,13 @@ function CountryPicker({ visible, onClose, onSelect }) {
   );
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={styles.pickerModal}>
-        <SafeAreaView edges={["top"]} style={{ backgroundColor: colors.background }}>
-          <View style={styles.pickerHeader}>
-            <Text style={styles.pickerTitle}>Select Country</Text>
-            <Pressable onPress={onClose} style={styles.pickerClose}>
-              <Ionicons name="close" size={22} color={colors.foreground} />
-            </Pressable>
-          </View>
-        </SafeAreaView>
+      <SafeAreaView edges={["top", "bottom"]} style={styles.pickerModal}>
+        <View style={styles.pickerHeader}>
+          <Text style={styles.pickerTitle}>Select Country</Text>
+          <Pressable onPress={onClose} style={styles.pickerClose}>
+            <Ionicons name="close" size={22} color={colors.foreground} />
+          </Pressable>
+        </View>
         <View style={styles.pickerSearch}>
           <Ionicons name="search-outline" size={16} color={colors.mutedFg} style={{ marginRight: 8 }} />
           <NoFillInput
@@ -325,7 +323,7 @@ function CountryPicker({ visible, onClose, onSelect }) {
           )}
           keyboardShouldPersistTaps="handled"
         />
-      </View>
+      </SafeAreaView>
     </Modal>
   );
 }
@@ -337,15 +335,13 @@ function TimezonePicker({ visible, onClose, onSelect, timezones }) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={styles.pickerModal}>
-        <SafeAreaView edges={["top"]} style={{ backgroundColor: colors.background }}>
-          <View style={styles.pickerHeader}>
-            <Text style={styles.pickerTitle}>Select Timezone</Text>
-            <Pressable onPress={onClose} style={styles.pickerClose}>
-              <Ionicons name="close" size={22} color={colors.foreground} />
-            </Pressable>
-          </View>
-        </SafeAreaView>
+      <SafeAreaView edges={["top", "bottom"]} style={styles.pickerModal}>
+        <View style={styles.pickerHeader}>
+          <Text style={styles.pickerTitle}>Select Timezone</Text>
+          <Pressable onPress={onClose} style={styles.pickerClose}>
+            <Ionicons name="close" size={22} color={colors.foreground} />
+          </Pressable>
+        </View>
         <FlatList
           data={timezones}
           keyExtractor={(item) => item}
@@ -360,7 +356,7 @@ function TimezonePicker({ visible, onClose, onSelect, timezones }) {
           )}
           keyboardShouldPersistTaps="handled"
         />
-      </View>
+      </SafeAreaView>
     </Modal>
   );
 }
@@ -790,23 +786,27 @@ export default function OnboardingScreen({ route }) {
               Your email is important, so that we will reach you when the time comes!
             </Text>
 
-            {/* OAuth buttons */}
-            <Pressable
-              style={({ pressed }) => [styles.oauthBtn, pressed && { opacity: 0.75 }]}
-              onPress={() => navigation.navigate(ROUTES.ONBOARDING, { startStep: 3, isOAuthFlow: true, oauthProvider: "apple" })}
-            >
-              <Ionicons name="logo-apple" size={20} color={colors.foreground} />
-              <Text style={styles.oauthBtnText}>Continue with Apple</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [styles.oauthBtn, { marginTop: 10 }, pressed && { opacity: 0.75 }]}
-              onPress={() => navigation.navigate(ROUTES.ONBOARDING, { startStep: 3, isOAuthFlow: true, oauthProvider: "google" })}
-            >
-              <Ionicons name="logo-google" size={18} color={colors.foreground} />
-              <Text style={styles.oauthBtnText}>Continue with Google</Text>
-            </Pressable>
+            {/* OAuth buttons — hidden once OTP is sent */}
+            {!otpSent && (
+              <>
+                <Pressable
+                  style={({ pressed }) => [styles.oauthBtn, pressed && { opacity: 0.75 }]}
+                  onPress={() => navigation.navigate(ROUTES.ONBOARDING, { startStep: 3, isOAuthFlow: true, oauthProvider: "apple" })}
+                >
+                  <Ionicons name="logo-apple" size={20} color={colors.foreground} />
+                  <Text style={styles.oauthBtnText}>Continue with Apple</Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [styles.oauthBtn, { marginTop: 10 }, pressed && { opacity: 0.75 }]}
+                  onPress={() => navigation.navigate(ROUTES.ONBOARDING, { startStep: 3, isOAuthFlow: true, oauthProvider: "google" })}
+                >
+                  <Ionicons name="logo-google" size={18} color={colors.foreground} />
+                  <Text style={styles.oauthBtnText}>Continue with Google</Text>
+                </Pressable>
 
-            <Divider />
+                <Divider />
+              </>
+            )}
 
             {/* Email input */}
             <View style={styles.inputGroup}>
