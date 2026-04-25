@@ -19,6 +19,7 @@ import { fonts, ROUTES } from "@/constants";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/hooks/useAuth";
 import { getEvent } from "@/services/events";
+import PillButton from "@/components/ui/PillButton";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const BANNER_HEIGHT = 220;
@@ -380,27 +381,14 @@ export default function EventDetailScreen() {
         )}
 
         {/* ── Participate button ── */}
-        <Pressable
-          style={[styles.participateBtn, hasCapsule && styles.participateBtnDisabled]}
+        <PillButton
+          label={hasCapsule ? "ALREADY PARTICIPATED" : "PARTICIPATE"}
+          onPress={() => navigation.navigate(ROUTES.CREATE_CAPSULE, { event })}
           disabled={hasCapsule}
-          onPress={() =>
-            navigation.navigate(ROUTES.CREATE_CAPSULE, { event })
-          }
-        >
-          <Ionicons
-            name={hasCapsule ? "checkmark-circle" : "add-circle-outline"}
-            size={20}
-            color={hasCapsule ? colors.mutedFg : colors.primaryFg}
-          />
-          <Text
-            style={[
-              styles.participateBtnText,
-              hasCapsule && styles.participateBtnTextDisabled,
-            ]}
-          >
-            {hasCapsule ? "ALREADY PARTICIPATED" : "PARTICIPATE"}
-          </Text>
-        </Pressable>
+          fullWidth
+          size="lg"
+          variant={hasCapsule ? "ghost" : "primary"}
+        />
 
         {/* ── Share options ── */}
         {event.invite_token && (

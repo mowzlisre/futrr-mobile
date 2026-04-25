@@ -27,7 +27,7 @@
       <dict>
         <key>CFBundleURLSchemes</key>
         <array>
-          <string>com.mowzlisre.futrr-mobile</string>
+          <string>com.mowzlisre.futrr</string>
         </array>
       </dict>
       <dict>

@@ -12,7 +12,6 @@ export const ROUTES = {
   FAVORITES: "Favorites",
   NOTIFICATIONS: "Notifications",
   SETTINGS: "Settings",
-  FOLLOW_REQUESTS: "FollowRequests",
   USER_PROFILE: "UserProfile",
   FORGOT_PASSWORD: "ForgotPassword",
   QUOTA: "Quota",

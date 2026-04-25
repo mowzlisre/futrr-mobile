@@ -1,4 +1,5 @@
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { useState, useEffect } from "react";
 import { ROUTES } from "@/constants";
 import { useAuth } from "@/hooks/useAuth";
 import { useTheme } from "@/hooks/useTheme";
@@ -17,7 +18,6 @@ import AtlasScreen from "@/screens/app/AtlasScreen";
 import FavoritesScreen from "@/screens/app/FavoritesScreen";
 import NotificationsScreen from "@/screens/app/NotificationsScreen";
 import SettingsScreen from "@/screens/app/SettingsScreen";
-import FollowRequestsScreen from "@/screens/app/FollowRequestsScreen";
 import UserProfileScreen from "@/screens/app/UserProfileScreen";
 import QuotaScreen from "@/screens/app/QuotaScreen";
 
@@ -26,8 +26,14 @@ const Stack = createNativeStackNavigator();
 export default function RootNavigator() {
   const { isLoggedIn, initializing, user } = useAuth();
   const { colors } = useTheme();
+  const [splashDone, setSplashDone] = useState(false);
 
-  if (initializing) {
+  useEffect(() => {
+    const t = setTimeout(() => setSplashDone(true), 4000);
+    return () => clearTimeout(t);
+  }, []);
+
+  if (initializing || !splashDone) {
     return <SplashLoader />;
   }
 
@@ -42,7 +48,6 @@ export default function RootNavigator() {
           <Stack.Screen name={ROUTES.FAVORITES} component={FavoritesScreen} />
           <Stack.Screen name={ROUTES.NOTIFICATIONS} component={NotificationsScreen} />
           <Stack.Screen name={ROUTES.SETTINGS} component={SettingsScreen} />
-          <Stack.Screen name={ROUTES.FOLLOW_REQUESTS} component={FollowRequestsScreen} />
           <Stack.Screen name={ROUTES.USER_PROFILE} component={UserProfileScreen} />
           <Stack.Screen name={ROUTES.QUOTA} component={QuotaScreen} />
           <Stack.Screen

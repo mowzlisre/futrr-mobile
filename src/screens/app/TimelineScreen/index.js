@@ -105,17 +105,19 @@ export default function TimelineScreen() {
   const [capsules, setCapsules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(false);
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
+      setError(false);
       const data = await getCapsules();
       const normalized = (data.results ?? data)
         .map(normalizeCapsule)
         .sort((a, b) => new Date(a.unlocksAt) - new Date(b.unlocksAt));
       setCapsules(normalized);
     } catch (_) {
-      setCapsules([]);
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -123,13 +125,16 @@ export default function TimelineScreen() {
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
+    setError(false);
     try {
       const data = await getCapsules();
       const normalized = (data.results ?? data)
         .map(normalizeCapsule)
         .sort((a, b) => new Date(a.unlocksAt) - new Date(b.unlocksAt));
       setCapsules(normalized);
-    } catch (_) {}
+    } catch (_) {
+      setError(true);
+    }
     setRefreshing(false);
   }, []);
 
@@ -169,6 +174,12 @@ export default function TimelineScreen() {
     >
       {loading ? (
         <ActivityIndicator color={colors.primary} style={{ marginTop: 48 }} />
+      ) : error ? (
+        <Pressable onPress={load} style={styles.emptyBox}>
+          <Ionicons name="cloud-offline-outline" size={40} color={colors.border} />
+          <Text style={styles.emptyText}>Could not load timeline</Text>
+          <Text style={[styles.emptyText, { fontSize: 12, marginTop: 4 }]}>Tap to retry</Text>
+        </Pressable>
       ) : capsules.length === 0 ? (
         <View style={styles.emptyBox}>
           <Ionicons name="time-outline" size={40} color={colors.border} />

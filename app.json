@@ -8,7 +8,7 @@
     "userInterfaceStyle": "dark",
     "scheme": "futrr",
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#0A0A0F"
     },
@@ -17,7 +17,7 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "futrr uses your location to show nearby time capsules on the Atlas."
       },
-      "bundleIdentifier": "com.mowzlisre.futrr-mobile"
+      "bundleIdentifier": "com.mowzlisre.futrr"
     },
     "android": {
       "adaptiveIcon": {
@@ -42,7 +42,13 @@
       "expo-location",
       "@react-native-community/datetimepicker",
       "expo-audio",
-      "expo-video"
+      "expo-video",
+      [
+        "expo-notifications",
+        {
+          "iosDisplayInForeground": true
+        }
+      ]
     ]
   }
 }

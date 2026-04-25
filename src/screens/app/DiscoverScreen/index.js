@@ -115,7 +115,7 @@ function DiscoverCapsuleCard({ capsule, onPress, styles }) {
             {isUnlocked ? "Unlocked " : "Unlocks "}{formatDate(capsule.unlocksAt)}
           </Text>
         </View>
-        <Text style={styles.typeLabel}>{capsule.type}</Text>
+        <Ionicons name={capsule.contentIcon || "text-outline"} size={14} color={colors.mutedFg} />
       </View>
     </Pressable>
   );
@@ -201,7 +201,7 @@ function PersonRow({ person, onFollowToggle, styles }) {
 
 // ─── Tab content ──────────────────────────────────────────────────────────────
 
-const FriendsTab = memo(function FriendsTab({ userId, refreshKey, styles }) {
+const FriendsTab = memo(function FriendsTab({ userId, refreshKey, styles, onRefreshDone }) {
   const { colors } = useTheme();
   const navigation = useNavigation();
   const [capsules, setCapsules] = useState([]);
@@ -220,7 +220,20 @@ const FriendsTab = memo(function FriendsTab({ userId, refreshKey, styles }) {
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { load(); }, [refreshKey]);
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (refreshKey === 0) return;
+    setLoading(true);
+    setError(false);
+    getFriendsFeed()
+      .then((data) => {
+        const list = data.results ?? data;
+        setCapsules(list.map((c) => normalizeCapsule(c, userId)));
+      })
+      .catch(() => setError(true))
+      .finally(() => { setLoading(false); onRefreshDone?.(); });
+  }, [refreshKey]);
 
   if (loading) return <ActivityIndicator color={colors.primary} style={{ marginTop: 32 }} />;
   if (error) return <ErrorHint onRetry={load} styles={styles} />;
@@ -242,7 +255,7 @@ const FriendsTab = memo(function FriendsTab({ userId, refreshKey, styles }) {
   ));
 });
 
-const EventsTab = memo(function EventsTab({ refreshKey, styles }) {
+const EventsTab = memo(function EventsTab({ refreshKey, styles, onRefreshDone }) {
   const { colors } = useTheme();
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -257,7 +270,17 @@ const EventsTab = memo(function EventsTab({ refreshKey, styles }) {
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { load(); }, [refreshKey]);
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (refreshKey === 0) return;
+    setLoading(true);
+    setError(false);
+    getEvents()
+      .then((d) => setEvents(d.results ?? []))
+      .catch(() => setError(true))
+      .finally(() => { setLoading(false); onRefreshDone?.(); });
+  }, [refreshKey]);
 
   // Listen for new events from CreateEventScreen
   useEffect(() => {
@@ -274,7 +297,7 @@ const EventsTab = memo(function EventsTab({ refreshKey, styles }) {
   return events.map((e) => <EventRow key={e.id} event={e} styles={styles} />);
 });
 
-const GlobalTab = memo(function GlobalTab({ userId, refreshKey, styles }) {
+const GlobalTab = memo(function GlobalTab({ userId, refreshKey, styles, onRefreshDone }) {
   const { colors } = useTheme();
   const [capsules, setCapsules] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -290,7 +313,17 @@ const GlobalTab = memo(function GlobalTab({ userId, refreshKey, styles }) {
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { load(); }, [refreshKey]);
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (refreshKey === 0) return;
+    setLoading(true);
+    setError(false);
+    getGlobalFeed()
+      .then((d) => setCapsules((d.capsules ?? []).map((c) => normalizeCapsule(c, userId))))
+      .catch(() => setError(true))
+      .finally(() => { setLoading(false); onRefreshDone?.(); });
+  }, [refreshKey]);
 
   if (loading) return <ActivityIndicator color={colors.primary} style={{ marginTop: 32 }} />;
   if (error) return <ErrorHint onRetry={load} styles={styles} />;
@@ -420,11 +453,13 @@ export default function DiscoverScreen() {
     return () => clearTimeout(searchTimer.current);
   }, []);
 
-  const handleRefresh = useCallback(async () => {
+  const handleRefresh = useCallback(() => {
     setRefreshing(true);
     setRefreshKey((k) => k + 1);
-    // Small delay to let tabs re-fetch
-    setTimeout(() => setRefreshing(false), 1000);
+  }, []);
+
+  const handleRefreshDone = useCallback(() => {
+    setRefreshing(false);
   }, []);
 
   const handleSearchChange = (text) => {
@@ -514,9 +549,9 @@ export default function DiscoverScreen() {
         ) : null
       ) : (
         <>
-          {activeTab === "Friends" && <FriendsTab userId={user?.id} refreshKey={refreshKey} styles={styles} />}
-          {activeTab === "Events" && <EventsTab refreshKey={refreshKey} styles={styles} />}
-          {activeTab === "Global" && <GlobalTab userId={user?.id} refreshKey={refreshKey} styles={styles} />}
+          {activeTab === "Friends" && <FriendsTab userId={user?.id} refreshKey={refreshKey} styles={styles} onRefreshDone={handleRefreshDone} />}
+          {activeTab === "Events" && <EventsTab refreshKey={refreshKey} styles={styles} onRefreshDone={handleRefreshDone} />}
+          {activeTab === "Global" && <GlobalTab userId={user?.id} refreshKey={refreshKey} styles={styles} onRefreshDone={handleRefreshDone} />}
         </>
       )}
     </ScrollView>

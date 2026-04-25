@@ -27,7 +27,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { fonts } from "@/constants";
 import { useTheme } from "@/hooks/useTheme";
 import { formatDate } from "@/utils/date";
-import { getCapsule, toggleFavorite, togglePin, updateVisibility } from "@/services/capsules";
+import { getCapsule, toggleFavorite, updateVisibility } from "@/services/capsules";
+import { hapticLight, hapticSuccess } from "@/utils/haptics";
 import { normalizeCapsule } from "@/utils/normalize";
 import { useAuth } from "@/hooks/useAuth";
 import { getCachedCapsule, setCachedCapsule } from "@/utils/capsuleCache";
@@ -648,24 +649,29 @@ const makeStyles = (colors) => StyleSheet.create({
     fontStyle: "italic",
     fontFamily: fonts.serif,
   },
-  heartButton: {
-    borderRadius: 16,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: `${colors.primary}30`,
-    marginTop: 4,
-  },
-  heartGradient: {
+  actionBar: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 14,
+    gap: 4,
+    paddingVertical: 12,
+    marginTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
-  heartText: {
-    fontSize: 14,
-    color: colors.primary,
-    fontWeight: "600",
+  actionBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    gap: 3,
+  },
+  actionCount: {
+    fontSize: 11,
+    color: colors.mutedFg,
+    fontWeight: "500",
+  },
+  actionDivider: {
+    flex: 1,
   },
   headerRight: {
     flexDirection: "row",
@@ -804,13 +810,9 @@ export default function UnlockedCapsuleScreen() {
     !initialCapsule.contents?.length
   );
   const [favorited, setFavorited] = useState(initialCapsule.isFavorited ?? false);
-  const [pinned, setPinned] = useState(initialCapsule.isPinned ?? false);
   const [isPublic, setIsPublic] = useState(initialCapsule.isPublic ?? false);
   const [listedInAtlas, setListedInAtlas] = useState(initialCapsule.listedInAtlas ?? true);
   const [favoriteCount, setFavoriteCount] = useState(initialCapsule.favoriteCount ?? 0);
-  const [pinCount, setPinCount] = useState(initialCapsule.pinCount ?? 0);
-  const [toggling, setToggling] = useState(false);
-  const [togglingPin, setTogglingPin] = useState(false);
   const [mapPickerVisible, setMapPickerVisible] = useState(false);
   const [mapRegion, setMapRegion] = useState(null);
   const [pinCoord, setPinCoord] = useState(null);
@@ -827,11 +829,9 @@ export default function UnlockedCapsuleScreen() {
       const norm = normalizeCapsule(cached, user?.id);
       setCapsule(norm);
       setFavorited(cached.is_favorited ?? false);
-      setPinned(cached.is_pinned ?? false);
       setIsPublic(norm.isPublic);
       setListedInAtlas(norm.listedInAtlas);
       setFavoriteCount(norm.favoriteCount);
-      setPinCount(norm.pinCount);
       setLoadingContents(false);
       return;
     }
@@ -844,11 +844,9 @@ export default function UnlockedCapsuleScreen() {
           const norm = normalizeCapsule(raw, user?.id);
           setCapsule(norm);
           setFavorited(raw.is_favorited ?? false);
-          setPinned(raw.is_pinned ?? false);
           setIsPublic(norm.isPublic);
           setListedInAtlas(norm.listedInAtlas);
           setFavoriteCount(norm.favoriteCount);
-          setPinCount(norm.pinCount);
         }
       } catch (_) {
         // silently fail — show whatever we already have
@@ -862,30 +860,17 @@ export default function UnlockedCapsuleScreen() {
   const contents = capsule.contents ?? [];
 
   const handleToggleFavorite = async () => {
-    if (toggling) return;
+    hapticLight();
+    const newFavorited = !favorited;
+    setFavorited(newFavorited);
+    setFavoriteCount((c) => c + (newFavorited ? 1 : -1));
     try {
-      setToggling(true);
-      const res = await toggleFavorite(capsule._id || capsule.id);
-      setFavorited(res.favorited);
-      setFavoriteCount((c) => c + (res.favorited ? 1 : -1));
+      await toggleFavorite(capsule._id || capsule.id);
+      if (newFavorited) hapticSuccess();
     } catch (_) {
-      // keep current state
-    } finally {
-      setToggling(false);
-    }
-  };
-
-  const handleTogglePin = async () => {
-    if (togglingPin) return;
-    try {
-      setTogglingPin(true);
-      const res = await togglePin(capsule._id || capsule.id);
-      setPinned(res.pinned);
-      setPinCount((c) => c + (res.pinned ? 1 : -1));
-    } catch (_) {
-      // keep current state
-    } finally {
-      setTogglingPin(false);
+      // rollback
+      setFavorited(!newFavorited);
+      setFavoriteCount((c) => c + (newFavorited ? -1 : 1));
     }
   };
 
@@ -991,19 +976,7 @@ export default function UnlockedCapsuleScreen() {
           <Ionicons name="lock-open-outline" size={13} color={colors.primary} />
           <Text style={styles.unlockedBadgeText}>Unlocked</Text>
         </View>
-        <View style={styles.headerRight}>
-          {isOwner && (
-            <Pressable onPress={handleEditVisibility} style={styles.headerBtn}>
-              <Ionicons name="create-outline" size={20} color={colors.foreground} />
-            </Pressable>
-          )}
-          <Pressable
-            onPress={() => Share.share({ message: capsule.title, title: capsule.title })}
-            style={styles.headerBtn}
-          >
-            <Ionicons name="share-outline" size={22} color={colors.foreground} />
-          </Pressable>
-        </View>
+        <View style={{ width: 40 }} />
       </View>
 
       <ScrollView
@@ -1056,10 +1029,6 @@ export default function UnlockedCapsuleScreen() {
             <Ionicons name="heart" size={12} color={colors.primary} />
             <Text style={styles.statChipText}>{favoriteCount}</Text>
           </View>
-          <View style={styles.statChip}>
-            <Ionicons name="pin" size={12} color={colors.primary} />
-            <Text style={styles.statChipText}>{pinCount}</Text>
-          </View>
         </View>
 
         {/* Description */}
@@ -1098,61 +1067,40 @@ export default function UnlockedCapsuleScreen() {
           return null;
         })()}
 
-        {/* Save to Heart */}
-        <Pressable
-          onPress={handleToggleFavorite}
-          disabled={toggling}
-          style={styles.heartButton}
-        >
-          <LinearGradient
-            colors={[`${colors.primary}30`, `${colors.secondary}20`]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.heartGradient}
+        {/* Action icon bar */}
+        <View style={styles.actionBar}>
+          {/* Favourite */}
+          <Pressable onPress={handleToggleFavorite} style={styles.actionBtn} accessibilityLabel="Favourite">
+            <Ionicons name={favorited ? "heart" : "heart-outline"} size={26} color={favorited ? colors.primary : colors.foreground} />
+          </Pressable>
+
+          <View style={styles.actionDivider} />
+
+          {/* Visibility (eye) — owner only */}
+          {isOwner && (
+            <Pressable onPress={handleEditVisibility} style={styles.actionBtn} accessibilityLabel="Edit visibility">
+              <Ionicons name="eye-outline" size={24} color={colors.foreground} />
+            </Pressable>
+          )}
+
+          {/* Share */}
+          <Pressable
+            onPress={() => Share.share({ message: `${capsule.title}\nhttps://futrr.app/capsule/${capsule.shareToken}`, url: `https://futrr.app/capsule/${capsule.shareToken}` })}
+            style={styles.actionBtn}
+            accessibilityLabel="Share"
           >
-            {toggling ? (
-              <ActivityIndicator size="small" color={colors.primary} />
-            ) : (
-              <Ionicons
-                name={favorited ? "heart" : "heart-outline"}
-                size={20}
-                color={colors.primary}
-              />
-            )}
-            <Text style={styles.heartText}>
-              {favorited ? "Saved to Heart" : "Save to Heart"}
-            </Text>
-          </LinearGradient>
-        </Pressable>
+            <Ionicons name="share-outline" size={24} color={colors.foreground} />
+          </Pressable>
+        </View>
 
-        {/* Pin to Profile */}
-        <Pressable
-          onPress={handleTogglePin}
-          disabled={togglingPin}
-          style={styles.pinButton}
-        >
-          <View style={styles.pinInner}>
-            {togglingPin ? (
-              <ActivityIndicator size="small" color={colors.primary} />
-            ) : (
-              <Ionicons
-                name={pinned ? "pin" : "pin-outline"}
-                size={20}
-                color={pinned ? colors.primary : colors.mutedFg}
-              />
-            )}
-            <Text style={[styles.pinText, pinned && { color: colors.primary }]}>
-              {pinned ? "Pinned to Profile" : "Pin to Profile"}
-            </Text>
-          </View>
-        </Pressable>
-
-        {/* Recipients */}
-        <RecipientsSection
-          capsuleId={capsule._id || capsule.id}
-          recipients={capsule.recipients ?? []}
-          style={{ marginTop: 12 }}
-        />
+        {/* Recipients — hidden for public capsules */}
+        {!isPublic && (
+          <RecipientsSection
+            capsuleId={capsule._id || capsule.id}
+            recipients={capsule.recipients ?? []}
+            style={{ marginTop: 12 }}
+          />
+        )}
       </ScrollView>
 
       {/* ── Atlas location picker modal ── */}

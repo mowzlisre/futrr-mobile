@@ -15,6 +15,7 @@ import { ROUTES, fonts } from "@/constants";
 import { useTheme } from "@/hooks/useTheme";
 import { getCapsules } from "@/services/capsules";
 import { normalizeCapsule } from "@/utils/normalize";
+import { getCachedList, setCachedList } from "@/utils/capsuleCache";
 import { useAuth } from "@/hooks/useAuth";
 import { getDaysUntil, formatDate } from "@/utils/date";
 import { useAppForeground } from "@/hooks/useAppForeground";
@@ -37,6 +38,7 @@ function StatCard({ value, label, unit, onPress, styles }) {
 function CapsuleCard({ capsule, onPress, styles }) {
   const { colors } = useTheme();
   const isUnlocked = capsule.status === "unlocked";
+  const isUnlockable = !isUnlocked && getDaysUntil(capsule.unlocksAt) <= 0;
 
   return (
     <Pressable
@@ -82,12 +84,12 @@ function CapsuleCard({ capsule, onPress, styles }) {
 
       {/* Footer: date pill + type */}
       <View style={styles.cardFooter}>
-        <View style={styles.datePill}>
-          <Text style={styles.datePillText}>
-            {isUnlocked ? "Unlocked " : "Unlocks "}{formatDate(capsule.unlocksAt)}
+        <View style={[styles.datePill, isUnlockable && styles.datePillReady]}>
+          <Text style={[styles.datePillText, isUnlockable && styles.datePillTextReady]}>
+            {isUnlocked ? `Unlocked ${formatDate(capsule.unlocksAt)}` : isUnlockable ? "Unlock Now ✦" : `Unlocks ${formatDate(capsule.unlocksAt)}`}
           </Text>
         </View>
-        <Text style={styles.typeLabel}>{capsule.type}</Text>
+        <Ionicons name={capsule.contentIcon || "text-outline"} size={14} color={colors.mutedFg} />
       </View>
     </Pressable>
   );
@@ -107,7 +109,12 @@ export default function VaultScreen() {
     try {
       if (isRefresh) setRefreshing(true);
       setError(null);
-      const data = await getCapsules();
+
+      // Serve from cache unless pull-to-refresh was triggered
+      const cached = !isRefresh && getCachedList("vault");
+      const data = cached ?? await getCapsules();
+      if (!cached) setCachedList("vault", data);
+
       const sorted = [...data].sort(
         (a, b) => new Date(b.sealed_at || b.created_at || 0) - new Date(a.sealed_at || a.created_at || 0)
       );
@@ -392,6 +399,14 @@ const makeStyles = (colors) => StyleSheet.create({
     lineHeight: 16,
     color: `${colors.primary}CC`,
     fontWeight: "500",
+  },
+  datePillReady: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  datePillTextReady: {
+    color: "#fff",
+    fontWeight: "700",
   },
   typeLabel: {
     fontSize: 10,

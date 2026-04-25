@@ -2,8 +2,8 @@ import axios from "axios";
 import { getAccessToken, getRefreshToken, saveTokens, clearTokens } from "@/services/storage";
 import { authBus } from "@/utils/authBus";
 
-// const BASE_URL = "https://api.futrr.app/api";
-const BASE_URL = "http://localhost:8000/api";
+const BASE_URL = "https://api.futrr.app/api";
+// const BASE_URL = "http://localhost:8000/api";
 
 
 const api = axios.create({

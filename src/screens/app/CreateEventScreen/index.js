@@ -26,6 +26,7 @@ import { eventBus } from "@/utils/eventBus";
 import { createEvent, checkEventSlug } from "@/services/events";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuota } from "@/hooks/useQuota";
+import PillButton from "@/components/ui/PillButton";
 
 // ─── Event type options ────────────────────────────────────────────────────────
 
@@ -657,17 +658,13 @@ export default function CreateEventScreen() {
         </View>
 
         {/* ── Create button ─────────────────────────────────────────────── */}
-        <Pressable
+        <PillButton
+          label="CREATE EVENT"
           onPress={handleCreate}
-          disabled={loading}
-          style={[styles.createBtn, loading && styles.createBtnDisabled]}
-        >
-          {loading ? (
-            <ActivityIndicator color={colors.primaryFg} />
-          ) : (
-            <Text style={styles.createBtnText}>CREATE EVENT</Text>
-          )}
-        </Pressable>
+          loading={loading}
+          fullWidth
+          size="lg"
+        />
       </ScrollView>
       </KeyboardAvoidingView>
 

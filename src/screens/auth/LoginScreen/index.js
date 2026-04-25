@@ -12,6 +12,7 @@ import { ParticleField } from "./ParticleField";
 import { FutrrInput } from "@/components/ui/FutrrInput";
 import { Divider } from "@/components/ui/Divider";
 import { makeStyles } from "./styles";
+import PillButton from "@/components/ui/PillButton";
 
 const makeSealStyles = (colors) =>
   StyleSheet.create({
@@ -154,21 +155,13 @@ export default function LoginScreen() {
             <Text style={styles.forgotPassword}>Forgot password?</Text>
           </Pressable>
 
-          <Pressable
-            style={({ pressed }) => [styles.loginButton, pressed && styles.loginButtonPressed]}
+          <PillButton
+            label={loading ? "Opening vault..." : "Open the vault"}
             onPress={handleLogin}
-          >
-            <LinearGradient
-              colors={[colors.primary, "#D4924A", colors.secondary]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.loginGradient}
-            >
-              <Text style={styles.loginText}>
-                {loading ? "Opening vault..." : "Open the vault"}
-              </Text>
-            </LinearGradient>
-          </Pressable>
+            loading={loading}
+            fullWidth
+            size="lg"
+          />
 
           
 
@@ -193,37 +186,32 @@ export default function LoginScreen() {
         ]}
       >
         <View style={{ paddingHorizontal: 32 }}>
-          <Pressable
-            style={styles.socialButton}
+          <PillButton
+            label="Continue with Apple"
             onPress={() => navigation.navigate(ROUTES.ONBOARDING, { startStep: 3, isOAuthFlow: true, oauthProvider: "apple" })}
-          >
-            <Ionicons name="logo-apple" size={20} color={colors.foreground} />
-            <Text style={styles.socialButtonText}>Continue with Apple</Text>
-          </Pressable>
+            variant="secondary"
+            fullWidth
+            size="lg"
+          />
 
-          <Pressable
-            style={[styles.socialButton, { marginTop: 10, marginBottom: 10 }]}
+          <View style={{ height: 10 }} />
+
+          <PillButton
+            label="Continue with Google"
             onPress={() => navigation.navigate(ROUTES.ONBOARDING, { startStep: 3, isOAuthFlow: true, oauthProvider: "google" })}
-          >
-            <Ionicons name="logo-google" size={18} color={colors.foreground} />
-            <Text style={styles.socialButtonText}>Continue with Google</Text>
-          </Pressable>
+            variant="secondary"
+            fullWidth
+            size="lg"
+          />
 
           <Divider />
 
-          <Pressable
-            style={({ pressed }) => [styles.loginButton, pressed && styles.loginButtonPressed]}
+          <PillButton
+            label="LOGIN WITH EMAIL"
             onPress={handleOpenForm}
-          >
-            <LinearGradient
-              colors={[colors.primary, "#D4924A", colors.secondary]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.loginGradient}
-            >
-              <Text style={styles.loginText}>LOGIN WITH EMAIL</Text>
-            </LinearGradient>
-          </Pressable>
+            fullWidth
+            size="lg"
+          />
         </View>
 
         <Pressable onPress={() => navigation.navigate(ROUTES.ONBOARDING)} style={{ alignItems: "center", marginBottom: 16 }}>

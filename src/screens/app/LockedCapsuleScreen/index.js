@@ -8,7 +8,9 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
+  Share,
 } from "react-native";
+import * as Notifications from "expo-notifications";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { getStoredPassphrase } from "@/utils/passphrase";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,10 +21,11 @@ import { ROUTES, fonts } from "@/constants";
 import { useTheme } from "@/hooks/useTheme";
 import { RecipientsSection } from "@/components/capsule/RecipientsSection";
 import { getCountdown, getProgress, formatLongDate } from "@/utils/date";
-import { unlockCapsule, togglePin } from "@/services/capsules";
+import { unlockCapsule } from "@/services/capsules";
 import { normalizeCapsule } from "@/utils/normalize";
 import { useAuth } from "@/hooks/useAuth";
 import { hapticSuccess, hapticError } from "@/utils/haptics";
+import PillButton from "@/components/ui/PillButton";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -600,8 +603,6 @@ export default function LockedCapsuleScreen() {
   const [opening, setOpening] = useState(false);
   const [showPassphrase, setShowPassphrase] = useState(false);
   const [storedPassphrase, setStoredPassphrase] = useState(null);
-  const [pinned, setPinned] = useState(capsule.isPinned ?? false);
-  const [togglingPin, setTogglingPin] = useState(false);
 
   // Try to pre-fill passphrase from SecureStore (stored at seal time for 7 days)
   useEffect(() => {
@@ -655,18 +656,43 @@ export default function LockedCapsuleScreen() {
     }
   };
 
-  const handleTogglePin = async () => {
-    if (togglingPin) return;
-    try {
-      setTogglingPin(true);
-      const res = await togglePin(capsule._id || capsule.id);
-      setPinned(res.pinned);
-    } catch (_) {
-      // keep current state
-    } finally {
-      setTogglingPin(false);
+  const [reminderSet, setReminderSet] = useState(false);
+
+  const handleSetReminder = async () => {
+    const unlockDate = new Date(capsule.unlocksAt);
+    if (unlockDate <= new Date()) {
+      Alert.alert("Already unlockable", "This capsule is ready to open now.");
+      return;
     }
+
+    const { status } = await Notifications.requestPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Allow notifications in Settings to set a reminder.");
+      return;
+    }
+
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: "Your capsule is ready 🎁",
+        body: capsule.title ? `"${capsule.title}" is now unlocked.` : "A capsule you sealed is ready to open.",
+        data: { capsuleId: capsule._id || capsule.id },
+      },
+      trigger: { date: unlockDate },
+    });
+
+    setReminderSet(true);
+    Alert.alert("Reminder set", `You'll be notified when this capsule unlocks on ${formatLongDate(capsule.unlocksAt)}.`);
   };
+
+  const handleShare = async () => {
+    try {
+      await Share.share({
+        message: `Check out this futrr capsule: https://futrr.app/capsule/${capsule.shareToken}`,
+        url: `https://futrr.app/capsule/${capsule.shareToken}`,
+      });
+    } catch (_) {}
+  };
+
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
@@ -678,7 +704,7 @@ export default function LockedCapsuleScreen() {
         <Text style={styles.headerTitle}>
           {unlockable ? "READY TO OPEN" : "SEALED CAPSULE"}
         </Text>
-        <Pressable style={styles.headerBtn}>
+        <Pressable onPress={handleShare} style={styles.headerBtn} accessibilityRole="button" accessibilityLabel="Share capsule">
           <Ionicons name="share-outline" size={22} color={colors.foreground} />
         </Pressable>
       </View>
@@ -766,75 +792,35 @@ export default function LockedCapsuleScreen() {
           </Text>
         </View>
 
-        {/* Recipients */}
-        <RecipientsSection
-          capsuleId={capsule._id || capsule.id}
-          recipients={capsule.recipients ?? []}
-          style={styles.recipientsSection}
-        />
+        {/* Recipients — hidden for public capsules */}
+        {!capsule.isPublic && (
+          <RecipientsSection
+            capsuleId={capsule._id || capsule.id}
+            recipients={capsule.recipients ?? []}
+            style={styles.recipientsSection}
+          />
+        )}
 
         {/* ── Open Capsule Button (only when unlockable) ─────────────────── */}
         {unlockable ? (
-          <Pressable
+          <PillButton
+            label={opening ? "Opening..." : "OPEN CAPSULE"}
             onPress={handleOpenPress}
-            disabled={opening}
-            style={styles.openButton}
-            accessibilityRole="button"
-            accessibilityLabel="Open capsule"
-          >
-            <LinearGradient
-              colors={[colors.primary, "#D4924A", colors.secondary]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.openGradient}
-            >
-              {opening ? (
-                <ActivityIndicator color={colors.primaryFg} />
-              ) : (
-                <>
-                  <Ionicons
-                    name="lock-open-outline"
-                    size={20}
-                    color={colors.primaryFg}
-                  />
-                  <Text style={styles.openButtonText}>OPEN CAPSULE</Text>
-                </>
-              )}
-            </LinearGradient>
-          </Pressable>
+            loading={opening}
+            fullWidth
+            size="lg"
+          />
         ) : (
-          /* Reminder Button (only while locked) */
-          <Pressable style={styles.reminderButton}>
-            <Ionicons
-              name="notifications-outline"
-              size={18}
-              color={colors.foreground}
-            />
-            <Text style={styles.reminderText}>SET REMINDER</Text>
-          </Pressable>
+          <PillButton
+            label={reminderSet ? "REMINDER SET" : "SET REMINDER"}
+            onPress={handleSetReminder}
+            disabled={reminderSet}
+            variant="secondary"
+            fullWidth
+            size="lg"
+          />
         )}
 
-        {/* Pin to Profile */}
-        <Pressable
-          onPress={handleTogglePin}
-          disabled={togglingPin}
-          style={styles.pinButton}
-        >
-          <View style={styles.pinInner}>
-            {togglingPin ? (
-              <ActivityIndicator size="small" color={colors.primary} />
-            ) : (
-              <Ionicons
-                name={pinned ? "pin" : "pin-outline"}
-                size={20}
-                color={pinned ? colors.primary : colors.mutedFg}
-              />
-            )}
-            <Text style={[styles.pinText, pinned && { color: colors.primary }]}>
-              {pinned ? "Pinned to Profile" : "Pin to Profile"}
-            </Text>
-          </View>
-        </Pressable>
       </ScrollView>
 
       {/* Passphrase modal — only for self-encrypted capsules */}

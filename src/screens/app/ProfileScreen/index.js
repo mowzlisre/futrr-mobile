@@ -20,7 +20,7 @@ import { ROUTES, fonts } from "@/constants";
 import { useAuth } from "@/hooks/useAuth";
 import { useTheme } from "@/hooks/useTheme";
 import { getProfile, uploadAvatar } from "@/services/user";
-import { getCapsules, getPinnedCapsules } from "@/services/capsules";
+import { getCapsules } from "@/services/capsules";
 import { normalizeCapsule } from "@/utils/normalize";
 import { formatDate } from "@/utils/date";
 
@@ -68,7 +68,7 @@ export default function ProfileScreen() {
 
   const [profile, setProfile] = useState(null);
   const [capsules, setCapsules] = useState([]);
-  const [pinnedCapsules, setPinnedCapsules] = useState([]);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState(null);
@@ -77,15 +77,13 @@ export default function ProfileScreen() {
 
   const load = useCallback(async () => {
     try {
-      const [profileData, capsulesData, pinnedData] = await Promise.all([
+      const [profileData, capsulesData] = await Promise.all([
         getProfile(),
         getCapsules(),
-        getPinnedCapsules(),
       ]);
       setProfile(profileData);
       if (profileData.avatar) setAvatarUrl(profileData.avatar);
       setCapsules(capsulesData.map((c) => normalizeCapsule(c, user?.id)));
-      setPinnedCapsules(pinnedData.map((c) => normalizeCapsule(c, user?.id)));
     } catch {
       // fall back silently
     } finally {
@@ -96,15 +94,13 @@ export default function ProfileScreen() {
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [profileData, capsulesData, pinnedData] = await Promise.all([
+      const [profileData, capsulesData] = await Promise.all([
         getProfile(),
         getCapsules(),
-        getPinnedCapsules(),
       ]);
       setProfile(profileData);
       if (profileData.avatar) setAvatarUrl(profileData.avatar);
       setCapsules(capsulesData.map((c) => normalizeCapsule(c, user?.id)));
-      setPinnedCapsules(pinnedData.map((c) => normalizeCapsule(c, user?.id)));
     } catch {}
     setRefreshing(false);
   }, [user?.id]);
@@ -258,35 +254,6 @@ export default function ProfileScreen() {
           </ScrollView>
         )}
 
-        {/* ── Pinned capsules section ── */}
-        <View style={[styles.sectionHeader, { marginTop: 32 }]}>
-          <Text style={styles.sectionTitle}>PINNED TO PROFILE</Text>
-        </View>
-
-        {loading ? (
-          <ActivityIndicator color={colors.primary} style={{ marginTop: 24 }} />
-        ) : pinnedCapsules.length === 0 ? (
-          <View style={styles.emptyBox}>
-            <Ionicons name="pin-outline" size={32} color={colors.border} />
-            <Text style={styles.emptyText}>No pinned capsules</Text>
-          </View>
-        ) : (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.pinnedList}
-          >
-            {pinnedCapsules.map((capsule) => (
-              <PinnedCard
-                key={capsule.id}
-                capsule={capsule}
-                onPress={() => handleCapsulePress(capsule)}
-                colors={colors}
-                styles={styles}
-              />
-            ))}
-          </ScrollView>
-        )}
       </ScrollView>
 
       {/* ── Full-screen avatar viewer ── */}

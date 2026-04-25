@@ -7,6 +7,14 @@ const CAPSULE_TYPE_MAP = {
   public: "COLLECTIVE",
 };
 
+function contentIcon(capsule) {
+  const types = capsule.allowed_content_types ?? [];
+  if (types.includes("video")) return "videocam-outline";
+  if (types.includes("photo")) return "camera-outline";
+  if (types.includes("voice")) return "mic-outline";
+  return "text-outline";
+}
+
 /**
  * Convert a raw API capsule object to the shape UI components expect.
  * Pass `currentUserId` (the logged-in user's UUID string) to show "You" for own capsules.
@@ -24,6 +32,7 @@ export function normalizeCapsule(c, currentUserId = null) {
     fromInitial: actualName[0].toUpperCase(),
     fromAvatar: c.created_by_avatar || null,
     type: CAPSULE_TYPE_MAP[c.capsule_type] || "MESSAGE",
+    contentIcon: contentIcon(c),
     status: c.status, // "sealed" | "unlocked" | "expired" | "broken"
     unlocksAt: c.unlock_at,
     sealedAt: c.sealed_at,
@@ -79,6 +88,8 @@ function senderInitial(notifType) {
       return "U";
     case "recipient_added":
       return "R";
+    case "follow_request":
+      return "F";
     case "event_joined":
     case "event_unlocked":
       return "E";

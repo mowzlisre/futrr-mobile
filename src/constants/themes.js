@@ -1,17 +1,17 @@
 export const darkColors = {
-  background: "#0A0A0F",
-  secondaryBackground: "#1A1826",
-  card: "#151120",
-  primary: "#EAA646",
-  primaryFg: "#0A0A0F",
-  secondary: "#C4714A",
-  foreground: "#FAF7F2",
-  muted: "#1A1826",
-  mutedFg: "#8A8A99",
-  border: "#2A2640",
+  background: "#0E0D0B",      // warm near-black, not cold blue-black
+  secondaryBackground: "#1C1A16", // warm dark brown-grey
+  card: "#181510",            // warm dark card, slight brown warmth
+  primary: "#EAA646",         // brand gold — unchanged
+  primaryFg: "#0E0D0B",
+  secondary: "#C4714A",       // warm amber-terracotta
+  foreground: "#F5EFE6",      // warm white, easier on eyes
+  muted: "#1C1A16",
+  mutedFg: "#9A9187",         // warm grey, not cold purple
+  border: "#2E2920",          // warm dark border
   error: "#E05A5A",
-  success: "#4CAF50",
-  errorStrong: "#c0392b",
+  success: "#5BBF6A",
+  errorStrong: "#C0392B",
   linear: "rgba(0, 0, 0, 0.7)"
 };
 
@@ -34,38 +34,38 @@ export const lightColors = {
 
 // Minimal dark map style for Google Maps (Android)
 export const darkMapStyle = [
-  { elementType: "geometry", stylers: [{ color: "#1d1d2b" }] },
-  { elementType: "labels.text.fill", stylers: [{ color: "#8a8a99" }] },
-  { elementType: "labels.text.stroke", stylers: [{ color: "#1d1d2b" }] },
+  { elementType: "geometry", stylers: [{ color: "#1a1710" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#9a9187" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#1a1710" }] },
   {
     featureType: "administrative",
     elementType: "geometry.stroke",
-    stylers: [{ color: "#2a2640" }],
+    stylers: [{ color: "#2e2920" }],
   },
   {
     featureType: "administrative.land_parcel",
     elementType: "labels.text.fill",
-    stylers: [{ color: "#5a5a6e" }],
+    stylers: [{ color: "#6a6050" }],
   },
   {
     featureType: "landscape",
     elementType: "geometry",
-    stylers: [{ color: "#151120" }],
+    stylers: [{ color: "#181510" }],
   },
   {
     featureType: "poi",
     elementType: "geometry",
-    stylers: [{ color: "#1a1826" }],
+    stylers: [{ color: "#1c1a16" }],
   },
   {
     featureType: "poi",
     elementType: "labels.text.fill",
-    stylers: [{ color: "#6e6e80" }],
+    stylers: [{ color: "#7a7060" }],
   },
   {
     featureType: "poi.park",
     elementType: "geometry",
-    stylers: [{ color: "#1a2218" }],
+    stylers: [{ color: "#1a2018" }],
   },
   {
     featureType: "poi.park",
@@ -75,47 +75,47 @@ export const darkMapStyle = [
   {
     featureType: "road",
     elementType: "geometry",
-    stylers: [{ color: "#2a2640" }],
+    stylers: [{ color: "#2e2920" }],
   },
   {
     featureType: "road",
     elementType: "geometry.stroke",
-    stylers: [{ color: "#1a1826" }],
+    stylers: [{ color: "#1c1a16" }],
   },
   {
     featureType: "road",
     elementType: "labels.text.fill",
-    stylers: [{ color: "#6e6e80" }],
+    stylers: [{ color: "#7a7060" }],
   },
   {
     featureType: "road.highway",
     elementType: "geometry",
-    stylers: [{ color: "#3a3550" }],
+    stylers: [{ color: "#3a3228" }],
   },
   {
     featureType: "road.highway",
     elementType: "geometry.stroke",
-    stylers: [{ color: "#2a2640" }],
+    stylers: [{ color: "#2e2920" }],
   },
   {
     featureType: "transit",
     elementType: "geometry",
-    stylers: [{ color: "#1a1826" }],
+    stylers: [{ color: "#1c1a16" }],
   },
   {
     featureType: "transit.station",
     elementType: "labels.text.fill",
-    stylers: [{ color: "#6e6e80" }],
+    stylers: [{ color: "#7a7060" }],
   },
   {
     featureType: "water",
     elementType: "geometry",
-    stylers: [{ color: "#0e0e1a" }],
+    stylers: [{ color: "#0e0c09" }],
   },
   {
     featureType: "water",
     elementType: "labels.text.fill",
-    stylers: [{ color: "#3a3a50" }],
+    stylers: [{ color: "#3a3228" }],
   },
 ];
 

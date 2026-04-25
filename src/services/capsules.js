@@ -76,11 +76,6 @@ export const declineCapsuleInvitation = async (capsuleId) => {
   await api.delete(`/capsules/${capsuleId}/invitation/`);
 };
 
-export const togglePin = async (id) => {
-  const res = await api.post(`/capsules/${id}/pin/`);
-  return res.data; // { pinned: true | false }
-};
-
 export const updateVisibility = async (id, { is_public, listed_in_atlas, latitude, longitude, location_name } = {}) => {
   const body = {};
   if (is_public !== undefined) body.is_public = is_public;
@@ -92,8 +87,3 @@ export const updateVisibility = async (id, { is_public, listed_in_atlas, latitud
   return res.data; // { is_public, listed_in_atlas, latitude, longitude, location_name }
 };
 
-export const getPinnedCapsules = async (userId = null) => {
-  const url = userId ? `/capsules/pinned/${userId}/` : "/capsules/pinned/";
-  const res = await api.get(url);
-  return res.data;
-};

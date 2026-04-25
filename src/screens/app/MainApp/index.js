@@ -92,7 +92,7 @@ export default function MainApp() {
               accessibilityLabel={eventLimitReached ? "Weekly event limit reached" : "Create event"}
             >
               <Ionicons
-                name={eventLimitReached ? "add-circle" : "add-circle-outline"}
+                name={eventLimitReached ? "calendar" : "calendar-outline"}
                 size={22}
                 color={eventLimitReached ? colors.border : colors.mutedFg}
               />
@@ -116,12 +116,6 @@ export default function MainApp() {
     if (activeTab === TABS.PROFILE) {
       return (
         <View style={styles.headerActions}>
-          <Pressable
-            onPress={() => navigation.navigate(ROUTES.FOLLOW_REQUESTS)}
-            style={styles.headerBtn}
-          >
-            <Ionicons name="people-outline" size={22} color={colors.mutedFg} />
-          </Pressable>
           <Pressable
             onPress={() => navigation.navigate(ROUTES.SETTINGS)}
             style={styles.headerBtn}

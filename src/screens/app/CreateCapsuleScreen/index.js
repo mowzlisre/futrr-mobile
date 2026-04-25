@@ -42,6 +42,8 @@ import { useQuota } from "@/hooks/useQuota";
 import { normalizeCapsule } from "@/utils/normalize";
 import { vaultBus } from "@/utils/vaultBus";
 import { hapticSuccess, hapticError } from "@/utils/haptics";
+import PillButton from "@/components/ui/PillButton";
+import SealingOverlay from "@/components/SealingOverlay";
 
 // ─── RecordingWaveform ────────────────────────────────────────────────────────
 
@@ -640,6 +642,9 @@ export default function CreateCapsuleScreen() {
   // Voice state
   const [recordedUri, setRecordedUri] = useState(null);
 
+  // Per-type media buffers — preserved when switching types so work isn't lost
+  const mediaBuffer = useRef({ photos: [], video: null, voice: null, photoMode: "photos" });
+
   // Separate date and time pickers
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -661,15 +666,38 @@ export default function CreateCapsuleScreen() {
 
   // Submit
   const [sealing, setSealing] = useState(false);
+  const [sealingOverlayVisible, setSealingOverlayVisible] = useState(false);
+  const [sealingDone, setSealingDone] = useState(false);
+  const pendingPassphrase = useRef(null);
+  const pendingCapsuleId = useRef(null);
 
-  // ── type switch — reset media state ───────────────────────────────────────
+  // ── type switch — save current media to buffer, restore new type's buffer ──
 
   const handleTypeChange = (newType) => {
+    if (newType === type) return;
+    // Save current state to buffer
+    mediaBuffer.current[type === "PHOTO" ? "photos" : type === "VOICE" ? "voice" : "photos"] =
+      type === "PHOTO" ? photos : type === "VOICE" ? recordedUri : null;
+    if (type === "PHOTO") {
+      mediaBuffer.current.video = video;
+      mediaBuffer.current.photoMode = photoMode;
+    }
+    // Restore buffer for the new type
+    if (newType === "PHOTO") {
+      setPhotos(mediaBuffer.current.photos ?? []);
+      setVideo(mediaBuffer.current.video ?? null);
+      setPhotoMode(mediaBuffer.current.photoMode ?? "photos");
+      setRecordedUri(null);
+    } else if (newType === "VOICE") {
+      setRecordedUri(mediaBuffer.current.voice ?? null);
+      setPhotos([]);
+      setVideo(null);
+    } else {
+      setPhotos([]);
+      setVideo(null);
+      setRecordedUri(null);
+    }
     setType(newType);
-    setPhotos([]);
-    setVideo(null);
-    setRecordedUri(null);
-    setPhotoMode("photos");
   };
 
   // ── date picker ───────────────────────────────────────────────────────────
@@ -784,10 +812,13 @@ export default function CreateCapsuleScreen() {
       return;
     }
 
+    // Show sealing overlay immediately
+    setSealingDone(false);
+    setSealingOverlayVisible(true);
+
     try {
       setSealing(true);
 
-      // Auto-generate passphrase for self-encrypted capsules
       const generatedPassphrase = encryptionType === "self" ? generatePassphrase() : null;
 
       const capsule = await createCapsule({
@@ -798,24 +829,17 @@ export default function CreateCapsuleScreen() {
         passphrase_hint: passphraseHint.trim(),
         ...(event ? { event_id: event.id } : {}),
         ...(showInAtlas && atlasLocation
-          ? {
-              latitude: atlasLocation.lat,
-              longitude: atlasLocation.lng,
-              location_name: atlasLocation.name,
-            }
+          ? { latitude: atlasLocation.lat, longitude: atlasLocation.lng, location_name: atlasLocation.name }
           : {}),
       });
 
-      // Push to vault immediately
       vaultBus.emit(normalizeCapsule(capsule, user?.id));
 
-      // Text is always required and uploaded for every capsule type
       await addCapsuleContent(capsule.id, {
         content_type: "text",
         body: message.trim(),
       });
 
-      // Photo / video uploads
       if (type === "PHOTO") {
         const files = photoMode === "photos" ? photos : [video];
         const contentType = photoMode === "photos" ? "photo" : "video";
@@ -837,16 +861,21 @@ export default function CreateCapsuleScreen() {
 
       hapticSuccess();
       refreshQuota();
+
+      // Store passphrase if needed, then signal overlay success
       if (generatedPassphrase) {
         await storePassphrase(capsule.id, generatedPassphrase);
-        setRevealedPassphrase(generatedPassphrase);
+        pendingCapsuleId.current = capsule.id;
+        pendingPassphrase.current = generatedPassphrase;
       } else {
-        navigation.goBack();
+        pendingPassphrase.current = null;
       }
+      setSealingDone(true); // triggers success animation in overlay
     } catch (err) {
       hapticError();
-      const msg =
-        err?.response?.data?.error || err?.error || "Failed to seal capsule";
+      setSealingOverlayVisible(false);
+      setSealingDone(false);
+      const msg = err?.response?.data?.error || err?.error || "Failed to seal capsule";
       Alert.alert("Error", msg);
     } finally {
       setSealing(false);
@@ -1051,7 +1080,7 @@ export default function CreateCapsuleScreen() {
                     </View>
                     <TextInput
                       style={styles.passphraseInput}
-                      placeholder="Optional hint for the recipient..."
+                      placeholder="Passphrase"
                       placeholderTextColor={colors.mutedFg}
                       value={passphraseHint}
                       onChangeText={setPassphraseHint}
@@ -1133,7 +1162,7 @@ export default function CreateCapsuleScreen() {
                       <View style={styles.atlasWarning}>
                         <Ionicons name="warning-outline" size={13} color={colors.mutedFg} />
                         <Text style={styles.atlasWarningText}>
-                          This capsule will appear on the Atlas and other users will be able to see its content from the location.
+                          This capsule will appear on the Atlas and other users will be able to see its content from the location when unlocked.
                         </Text>
                       </View>
                     )}
@@ -1173,24 +1202,13 @@ export default function CreateCapsuleScreen() {
         </View>
 
         {/* Seal Button */}
-        <Pressable
+        <PillButton
+          label="SEAL THIS MOMENT"
           onPress={handleSeal}
-          disabled={sealing}
-          style={styles.sealButton}
-          accessibilityRole="button"
-          accessibilityLabel="Seal capsule"
-        >
-          <LinearGradient
-            colors={[colors.primary, "#D4924A", colors.secondary]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.sealGradient}
-          >
-            <Text style={styles.sealButtonText}>
-              {sealing ? "SEALING..." : "SEAL THIS MOMENT"}
-            </Text>
-          </LinearGradient>
-        </Pressable>
+          disabled={sealing || sealingOverlayVisible}
+          fullWidth
+          size="lg"
+        />
       </ScrollView>
       </KeyboardAvoidingView>
 
@@ -1312,6 +1330,22 @@ export default function CreateCapsuleScreen() {
         recipient={recipient}
         onSelect={setRecipient}
         onDismiss={() => setShowSendTo(false)}
+      />
+
+      {/* Sealing animation overlay */}
+      <SealingOverlay
+        visible={sealingOverlayVisible}
+        sealed={sealingDone}
+        unlockDate={unlockDate}
+        onDone={() => {
+          setSealingOverlayVisible(false);
+          if (pendingPassphrase.current) {
+            setRevealedPassphrase(pendingPassphrase.current);
+            pendingPassphrase.current = null;
+          } else {
+            navigation.goBack();
+          }
+        }}
       />
     </SafeAreaView>
   );
@@ -1726,7 +1760,7 @@ const makeStyles = (colors) => StyleSheet.create({
   accordionHeaderLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 10,
     flex: 1,
   },
   accordionHeaderLabel: {
@@ -1768,7 +1802,7 @@ const makeStyles = (colors) => StyleSheet.create({
     borderTopColor: colors.border,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    gap: 10,
+    gap: 4,
   },
   passphraseHint: {
     flexDirection: "row",
@@ -1832,7 +1866,7 @@ const makeStyles = (colors) => StyleSheet.create({
     color: colors.mutedFg,
   },
   settingsSection: {
-    gap: 10,
+    gap: 8,
   },
   settingsSectionHeader: {
     flexDirection: "row",

@@ -20,6 +20,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/hooks/useAuth";
 import { useTour } from "@/hooks/useTour";
 import { ROUTES } from "@/constants";
+import PillButton from "@/components/ui/PillButton";
 import { hapticWarning, hapticLight, hapticSuccess } from "@/utils/haptics";
 import {
   getProfile,
@@ -355,33 +356,21 @@ export default function SettingsScreen() {
         </View>
 
         {/* Sign Out */}
-        <Pressable
+        <PillButton
+          label="Sign Out"
+          variant="danger"
+          fullWidth
           onPress={() => Alert.alert("Sign Out", "Are you sure you want to sign out?", [{ text: "Cancel", style: "cancel" }, { text: "Sign Out", style: "destructive", onPress: logout }])}
-          style={({ pressed }) => [styles.logoutButton, pressed && { opacity: 0.7 }]}
-          accessibilityRole="button"
-          accessibilityLabel="Sign out"
-        >
-          <Ionicons name="log-out-outline" size={20} color={colors.error} />
-          <Text style={styles.logoutText}>Sign Out</Text>
-        </Pressable>
+        />
 
         {/* Delete Account */}
-        <Pressable
+        <PillButton
+          label="Delete Account"
+          variant="ghost"
+          fullWidth
+          loading={deleting}
           onPress={handleDeleteAccount}
-          disabled={deleting}
-          style={({ pressed }) => [styles.deleteButton, pressed && { opacity: 0.7 }]}
-          accessibilityRole="button"
-          accessibilityLabel="Delete account"
-        >
-          {deleting ? (
-            <ActivityIndicator size="small" color={colors.error} />
-          ) : (
-            <>
-              <Ionicons name="trash-outline" size={18} color={colors.error} />
-              <Text style={styles.deleteText}>Delete Account</Text>
-            </>
-          )}
-        </Pressable>
+        />
 
         <Text style={styles.version}>futrr · v1.0.0</Text>
       </ScrollView>
