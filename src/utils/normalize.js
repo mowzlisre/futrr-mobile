@@ -66,10 +66,15 @@ export function normalizeCapsule(c, currentUserId = null) {
  * Convert a raw API notification object to the shape UI components expect.
  */
 export function normalizeNotification(n) {
+  const username = n.from_user?.username ?? null;
+  const initial  = username ? username[0].toUpperCase() : "?";
   return {
     id: n.id,
     read: n.is_read,
-    fromInitial: senderInitial(n.type),
+    fromUsername: username,
+    fromUserId:   n.from_user?.id ?? null,
+    fromAvatar:   n.from_user?.avatar ?? null,
+    fromInitial:  initial,
     message: n.title,
     subtitle: n.body,
     time: formatRelativeTime(n.created_at),

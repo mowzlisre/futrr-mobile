@@ -14,10 +14,39 @@ import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "@/hooks/useTheme";
+import { ROUTES } from "@/constants";
 import { getNotifications, markNotificationRead } from "@/services/notifications";
 import { acceptCapsuleInvitation, declineCapsuleInvitation } from "@/services/capsules";
-import { getFollowRequests, acceptFollowRequest, rejectFollowRequest } from "@/services/user";
+import { getFollowRequests, acceptFollowRequest, rejectFollowRequest, searchUsers } from "@/services/user";
 import { normalizeNotification } from "@/utils/normalize";
+
+// ── Parse @mentions and make them tappable ────────────────────────────────────
+
+function MessageWithMentions({ text, onMentionPress, style, mentionStyle }) {
+  if (!text) return null;
+  const parts = text.split(/(@[\w.]+)/g);
+  if (parts.length === 1) return <Text style={style}>{text}</Text>;
+
+  return (
+    <Text style={style}>
+      {parts.map((part, i) => {
+        if (/^@[\w.]+$/.test(part)) {
+          const username = part.slice(1);
+          return (
+            <Text
+              key={i}
+              style={mentionStyle}
+              onPress={() => onMentionPress(username)}
+            >
+              {part}
+            </Text>
+          );
+        }
+        return <Text key={i}>{part}</Text>;
+      })}
+    </Text>
+  );
+}
 
 // ── Follow request row ────────────────────────────────────────────────────────
 
@@ -62,7 +91,7 @@ function FollowRequestRow({ item, onAccept, onReject, busy, colors, styles }) {
 
 // ── Notification item ─────────────────────────────────────────────────────────
 
-function NotificationItem({ item, onPress, onAccept, onDecline, actionBusy, colors, styles }) {
+function NotificationItem({ item, onPress, onAccept, onDecline, onMentionPress, actionBusy, colors, styles }) {
   const isInvite = item.type === "recipient_added" && item.relatedCapsule && !item.read;
 
   return (
@@ -72,18 +101,33 @@ function NotificationItem({ item, onPress, onAccept, onDecline, actionBusy, colo
       accessibilityRole="button"
       accessibilityLabel={item.message}
     >
-      <View style={[styles.avatar, item.fromInitial === "?" && styles.avatarAnon]}>
-        {item.fromInitial === "?" ? (
-          <Ionicons name="person-outline" size={16} color={colors.mutedFg} />
-        ) : (
+      {/* Avatar — real user photo or fallback initial */}
+      <View style={[styles.avatar, !item.fromAvatar && !item.fromInitial && styles.avatarAnon]}>
+        {item.fromAvatar ? (
+          <Image source={{ uri: item.fromAvatar }} style={styles.avatarImg} />
+        ) : item.fromInitial && item.fromInitial !== "?" ? (
           <Text style={styles.avatarText}>{item.fromInitial}</Text>
+        ) : (
+          <Ionicons name="person-outline" size={16} color={colors.mutedFg} />
         )}
       </View>
 
       <View style={styles.itemContent}>
-        <Text style={styles.itemMessage}>{item.message}</Text>
-        <Text style={styles.itemSubtitle}>{item.subtitle}</Text>
-        <Text style={styles.itemTime}>{item.time}</Text>
+        {/* Message with tappable @mentions */}
+        <MessageWithMentions
+          text={item.message}
+          style={styles.itemMessage}
+          mentionStyle={[styles.itemMessage, styles.mention, { color: colors.primary }]}
+          onMentionPress={onMentionPress}
+        />
+
+        {/* Subtitle + timestamp on same line, no gap */}
+        <View style={styles.metaRow}>
+          {!!item.subtitle && (
+            <Text style={styles.itemSubtitle} numberOfLines={1}>{item.subtitle}</Text>
+          )}
+          <Text style={styles.itemTime}>{item.time}</Text>
+        </View>
 
         {isInvite && (
           <View style={styles.inviteActions}>
@@ -170,6 +214,18 @@ export default function NotificationsScreen() {
     }
   };
 
+  const handleMentionPress = async (username) => {
+    try {
+      const results = await searchUsers(username);
+      const user = results.find(
+        (u) => u.username?.toLowerCase() === username.toLowerCase()
+      );
+      if (user?.id) {
+        navigation.navigate(ROUTES.USER_PROFILE, { userId: user.id });
+      }
+    } catch (_) {}
+  };
+
   const handleAccept = async (item) => {
     try {
       setActionBusy(item.id);
@@ -220,8 +276,6 @@ export default function NotificationsScreen() {
     }
   };
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
-
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       {/* Header */}
@@ -235,14 +289,6 @@ export default function NotificationsScreen() {
         </View>
         <View style={{ width: 40 }} />
       </View>
-
-      {unreadCount > 0 && (
-        <View style={styles.unreadBanner}>
-          <Text style={styles.unreadBannerText}>
-            {unreadCount} new {unreadCount === 1 ? "notification" : "notifications"}
-          </Text>
-        </View>
-      )}
 
       {loading ? (
         <ActivityIndicator color={colors.primary} style={{ marginTop: 32 }} />
@@ -285,6 +331,7 @@ export default function NotificationsScreen() {
               onPress={() => handlePress(item)}
               onAccept={handleAccept}
               onDecline={handleDecline}
+              onMentionPress={handleMentionPress}
               actionBusy={actionBusy}
               colors={colors}
               styles={styles}
@@ -326,16 +373,9 @@ const makeStyles = (colors) => StyleSheet.create({
   headerTitle: {
     fontSize: 22, fontWeight: "300", color: colors.foreground, textAlign: "center",
   },
-  unreadBanner: {
-    marginHorizontal: 20, marginBottom: 8,
-    backgroundColor: `${colors.primary}15`, borderRadius: 10,
-    paddingHorizontal: 14, paddingVertical: 8,
-    borderWidth: 1, borderColor: `${colors.primary}30`,
-  },
-  unreadBannerText: { fontSize: 12, color: colors.primary, fontWeight: "500" },
   list: { paddingHorizontal: 20, paddingBottom: 24, gap: 8 },
 
-  // Follow requests section
+  // Follow requests
   followSection: { marginBottom: 20 },
   followSectionTitle: {
     fontSize: 10, color: colors.mutedFg, letterSpacing: 2,
@@ -380,16 +420,27 @@ const makeStyles = (colors) => StyleSheet.create({
     alignItems: "center", justifyContent: "center",
     borderWidth: 1.5, borderColor: `${colors.primary}40`,
     overflow: "hidden",
+    flexShrink: 0,
   },
   avatarAnon: { borderColor: colors.border },
   avatarText: { fontSize: 16, fontWeight: "600", color: colors.foreground },
-  itemContent: { flex: 1, gap: 3 },
-  itemMessage: { fontSize: 14, fontWeight: "500", color: colors.foreground },
-  itemSubtitle: { fontSize: 12, color: colors.mutedFg, fontStyle: "italic" },
-  itemTime: { fontSize: 11, color: `${colors.mutedFg}99`, marginTop: 2 },
+  itemContent: { flex: 1 },
+  itemMessage: { fontSize: 14, fontWeight: "500", color: colors.foreground, lineHeight: 19 },
+  mention: { fontWeight: "700" },
+  // subtitle + time on same line, tight
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 3,
+  },
+  itemSubtitle: { fontSize: 11, color: colors.mutedFg, fontStyle: "italic", flexShrink: 1 },
+  itemTime: { fontSize: 11, color: `${colors.mutedFg}88` },
   unreadDot: {
     width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary,
     shadowColor: colors.primary, shadowOpacity: 0.8, shadowRadius: 4,
+    flexShrink: 0,
   },
   inviteActions: { flexDirection: "row", gap: 8, marginTop: 10 },
   inviteBtn: {

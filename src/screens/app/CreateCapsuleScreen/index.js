@@ -667,7 +667,8 @@ export default function CreateCapsuleScreen() {
   // Submit
   const [sealing, setSealing] = useState(false);
   const [sealingOverlayVisible, setSealingOverlayVisible] = useState(false);
-  const [sealingDone, setSealingDone] = useState(false);
+  const [sealingDone, setSealingDone]   = useState(false);
+  const [sealingError, setSealingError] = useState(null);
   const pendingPassphrase = useRef(null);
   const pendingCapsuleId = useRef(null);
 
@@ -814,6 +815,7 @@ export default function CreateCapsuleScreen() {
 
     // Show sealing overlay immediately
     setSealingDone(false);
+    setSealingError(null);
     setSealingOverlayVisible(true);
 
     try {
@@ -873,10 +875,9 @@ export default function CreateCapsuleScreen() {
       setSealingDone(true); // triggers success animation in overlay
     } catch (err) {
       hapticError();
-      setSealingOverlayVisible(false);
       setSealingDone(false);
-      const msg = err?.response?.data?.error || err?.error || "Failed to seal capsule";
-      Alert.alert("Error", msg);
+      const msg = err?.response?.data?.error || err?.error || "Failed to seal capsule.";
+      setSealingError(msg); // overlay shows alert then closes via onDone
     } finally {
       setSealing(false);
     }
@@ -1337,8 +1338,10 @@ export default function CreateCapsuleScreen() {
         visible={sealingOverlayVisible}
         sealed={sealingDone}
         unlockDate={unlockDate}
+        sealError={sealingError}
         onDone={() => {
           setSealingOverlayVisible(false);
+          setSealingError(null);
           if (pendingPassphrase.current) {
             setRevealedPassphrase(pendingPassphrase.current);
             pendingPassphrase.current = null;

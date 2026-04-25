@@ -1,6 +1,6 @@
 import {
   View, Text, Modal, StyleSheet, Animated,
-  Easing, Pressable, useWindowDimensions,
+  Easing, Pressable, useWindowDimensions, Alert,
 } from "react-native";
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useTheme } from "@/hooks/useTheme";
@@ -154,7 +154,8 @@ const TEXT_DIM   = "rgba(245,239,230,0.45)";
 
 export default function SealingOverlay({
   visible,
-  sealed  = false,
+  sealed     = false,
+  sealError  = null,   // error string — shows alert and closes overlay
   unlockDate = new Date(),
   onDone,
 }) {
@@ -162,68 +163,108 @@ export default function SealingOverlay({
   const GOLD = colors.primary;
 
   // Phase: idle → scrambling → waiting → done
-  const [phase,     setPhase]     = useState("idle");
-  const [showDate,  setShowDate]  = useState(false);
-  const [showBtn,   setShowBtn]   = useState(false);
-  const sealedRef   = useRef(false);
+  const [phase,    setPhase]    = useState("idle");
+  const [showBar,  setShowBar]  = useState(false);
+  const [showDate, setShowDate] = useState(false);
+  const [showBtn,  setShowBtn]  = useState(false);
+  const sealedRef  = useRef(false);
 
   // Animated values
-  const dateOp  = useRef(new Animated.Value(0)).current;
-  const dateY   = useRef(new Animated.Value(10)).current;
-  const btnOp   = useRef(new Animated.Value(0)).current;
-  const btnY    = useRef(new Animated.Value(30)).current;
+  const barOp    = useRef(new Animated.Value(1)).current;  // progress bar opacity exit
+  const barScaleX = useRef(new Animated.Value(1)).current; // progress bar scale exit
+  const dateOp   = useRef(new Animated.Value(0)).current;
+  const dateY    = useRef(new Animated.Value(48)).current; // start lower for from-bottom feel
+  const btnOp    = useRef(new Animated.Value(0)).current;
+  const btnY     = useRef(new Animated.Value(30)).current;
+  const progress  = useRef(new Animated.Value(0)).current; // 0 → 1
 
-  // Word list built from breakdown
+  // Word list
   const { days, hours, minutes } = breakdown(unlockDate);
   const lines = [
-    { text: toWords(days),    isLabel: false, unit: "days"    },
-    { text: toWords(hours),   isLabel: false, unit: "hours"   },
-    { text: toWords(minutes), isLabel: false, unit: "minutes" },
+    { text: toWords(days),    unit: "days"    },
+    { text: toWords(hours),   unit: "hours"   },
+    { text: toWords(minutes), unit: "minutes" },
   ];
 
-  // Total stagger: each line (value + label) spaced 700ms apart
-  // value at delay, label 400ms after
   const wordDelays = [];
   lines.forEach((_, i) => {
-    wordDelays.push(i * 750);        // number word
-    wordDelays.push(i * 750 + 420);  // unit label
+    wordDelays.push(i * 750);
+    wordDelays.push(i * 750 + 420);
   });
-  const lastWordDone = wordDelays[wordDelays.length - 1] + 14 * 55 + 50; // + scramble duration
+  const lastWordDone = wordDelays[wordDelays.length - 1] + 14 * 55 + 50;
 
-  // ── Reset ────────────────────────────────────────────────────────────────
+  const START_DELAY = 400;
+
+  // ── Reset on open ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!visible) return;
     sealedRef.current = false;
-    dateOp.setValue(0); dateY.setValue(10);
+    barOp.setValue(1); barScaleX.setValue(1);
+    dateOp.setValue(0); dateY.setValue(48);
     btnOp.setValue(0);  btnY.setValue(30);
+    progress.setValue(0);
+    setShowBar(false);
     setShowDate(false);
     setShowBtn(false);
-    setPhase("scrambling");
+    setPhase("idle");
+    const t = setTimeout(() => {
+      setShowBar(true);
+      setPhase("scrambling");
+    }, START_DELAY);
+    return () => clearTimeout(t);
   }, [visible]);
 
-  // ── sealed ────────────────────────────────────────────────────────────────
+  // ── sealError — alert then close ──────────────────────────────────────────
+  useEffect(() => {
+    if (!sealError) return;
+    Alert.alert(
+      "Capsule Locking Failed",
+      sealError || "Something went wrong while sealing your capsule. Please try again.",
+      [{ text: "OK", onPress: onDone }]
+    );
+  }, [sealError]);
+
+  // ── sealed = true → exit bar, show date from bottom ──────────────────────
   useEffect(() => {
     if (!sealed) return;
     sealedRef.current = true;
-    if (phase === "waiting") revealButton();
+    if (phase === "waiting") exitBarThenReveal();
   }, [sealed, phase]);
 
-  // ── After scramble completes → show date, then wait or reveal button ──────
+  // ── Scramble phase: fill bar, then enter waiting ──────────────────────────
   useEffect(() => {
     if (phase !== "scrambling") return;
+
+    Animated.timing(progress, {
+      toValue: 1,
+      duration: lastWordDone,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: false,
+    }).start();
+
     const t = setTimeout(() => {
-      // Show unlock date
-      setShowDate(true);
-      Animated.parallel([
-        Animated.timing(dateOp, { toValue: 1, duration: 600, useNativeDriver: true }),
-        Animated.timing(dateY,  { toValue: 0, duration: 600, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-      ]).start(() => {
-        if (sealedRef.current) revealButton();
-        else setPhase("waiting");
-      });
+      if (sealedRef.current) exitBarThenReveal();
+      else setPhase("waiting");
     }, lastWordDone);
     return () => clearTimeout(t);
   }, [phase]);
+
+  // ── Smooth bar exit → date fade-in from bottom → button ──────────────────
+  function exitBarThenReveal() {
+    // Animate bar out: fade + shrink toward left
+    Animated.parallel([
+      Animated.timing(barOp,    { toValue: 0, duration: 350, easing: Easing.in(Easing.quad), useNativeDriver: true }),
+      Animated.timing(barScaleX,{ toValue: 0, duration: 400, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+    ]).start(() => {
+      setShowBar(false);
+      // Date slides up from bottom
+      setShowDate(true);
+      Animated.parallel([
+        Animated.timing(dateOp, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(dateY,  { toValue: 0, duration: 700, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      ]).start(() => revealButton());
+    });
+  }
 
   function revealButton() {
     setPhase("done");
@@ -262,6 +303,29 @@ export default function SealingOverlay({
             </View>
           ))}
         </View>
+
+        {/* ── Progress bar (fades + shrinks out on success) ───────── */}
+        {showBar && (
+          <Animated.View
+            style={[
+              styles.progressTrack,
+              { opacity: barOp, transform: [{ scaleX: barScaleX }] },
+            ]}
+          >
+            <Animated.View
+              style={[
+                styles.progressFill,
+                {
+                  backgroundColor: GOLD,
+                  width: progress.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ["0%", "100%"],
+                  }),
+                },
+              ]}
+            />
+          </Animated.View>
+        )}
 
         {/* ── Bottom: unlock date + button ──────────────────────── */}
         <View style={styles.bottom}>
@@ -328,10 +392,22 @@ const styles = StyleSheet.create({
     letterSpacing: 3,
     textTransform: "uppercase",
   },
+  progressTrack: {
+    width: "100%",
+    height: 2,
+    backgroundColor: "rgba(245,239,230,0.10)",
+    borderRadius: 1,
+    overflow: "hidden",
+    marginBottom: 20,
+  },
+  progressFill: {
+    height: "100%",
+    borderRadius: 1,
+  },
   bottom: {
     alignItems: "center",
     gap: 18,
-    paddingTop: 20,
+    paddingTop: 4,
   },
   unlockBlock: {
     alignItems: "center",
