@@ -20,7 +20,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { formatDate } from "@/utils/date";
 
 function FavoriteCard({ capsule, onPress, colors, styles }) {
-  const textContent = capsule.contents?.find((c) => c.content_type === "text");
   return (
     <Pressable
       onPress={onPress}
@@ -36,44 +35,16 @@ function FavoriteCard({ capsule, onPress, colors, styles }) {
         </View>
         <View style={styles.senderInfo}>
           <Text style={styles.senderName}>From {capsule.from}</Text>
-          <Text style={styles.sealedDate}>Sealed on {formatDate(capsule.sealedAt)}</Text>
+          <Text style={styles.sealedDate}>Sealed {formatDate(capsule.sealedAt)}</Text>
         </View>
+        {/* Timestamp top-right */}
+        <Text style={styles.topDate}>{formatDate(capsule.unlocksAt)}</Text>
         <View style={styles.heartGlow}>
           <Ionicons name="heart" size={18} color={colors.primary} />
         </View>
       </View>
 
       <Text style={styles.capsuleTitle}>{capsule.title}</Text>
-
-      {textContent?.body ? (
-        <Text style={styles.messagePreview} numberOfLines={2}>
-          {textContent.body}
-        </Text>
-      ) : null}
-
-      <View style={styles.cardFooter}>
-        <View
-          style={[
-            styles.statusBadge,
-            capsule.status === "unlocked" && styles.unlockedBadge,
-          ]}
-        >
-          <Ionicons
-            name={capsule.status === "unlocked" ? "lock-open-outline" : "lock-closed-outline"}
-            size={12}
-            color={capsule.status === "unlocked" ? colors.primary : colors.mutedFg}
-          />
-          <Text
-            style={[
-              styles.statusText,
-              capsule.status === "unlocked" && { color: colors.primary },
-            ]}
-          >
-            {capsule.status === "unlocked" ? "Unlocked" : "Sealed"}
-          </Text>
-        </View>
-        <Text style={styles.footerDate}>{formatDate(capsule.unlocksAt)}</Text>
-      </View>
     </Pressable>
   );
 }
@@ -253,7 +224,12 @@ const makeStyles = (colors) => StyleSheet.create({
     fontWeight: "700",
     color: colors.foreground,
   },
-  senderInfo: { flex: 1, gap: 2 },
+  senderInfo: { flex: 1, gap: 2, marginRight: 6 },
+  topDate: {
+    fontSize: 11,
+    color: colors.mutedFg,
+    alignSelf: "flex-start",
+  },
   senderName: {
     fontSize: 14,
     fontWeight: "500",

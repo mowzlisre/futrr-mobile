@@ -15,7 +15,7 @@ import { ROUTES, fonts } from "@/constants";
 import { useTheme } from "@/hooks/useTheme";
 import { getCapsules } from "@/services/capsules";
 import { normalizeCapsule } from "@/utils/normalize";
-import { getCachedList, setCachedList } from "@/utils/capsuleCache";
+import { getCachedList, setCachedList, invalidateList } from "@/utils/capsuleCache";
 import { useAuth } from "@/hooks/useAuth";
 import { getDaysUntil, formatDate } from "@/utils/date";
 import { useAppForeground } from "@/hooks/useAppForeground";
@@ -89,7 +89,11 @@ function CapsuleCard({ capsule, onPress, styles }) {
             {isUnlocked ? `Unlocked ${formatDate(capsule.unlocksAt)}` : isUnlockable ? "Unlock Now ✦" : `Unlocks ${formatDate(capsule.unlocksAt)}`}
           </Text>
         </View>
-        <Ionicons name={capsule.contentIcon || "text-outline"} size={14} color={colors.mutedFg} />
+        {capsule.contentIcon ? (
+          <Ionicons name={capsule.contentIcon} size={14} color={colors.mutedFg} />
+        ) : (
+          <Text style={styles.contentTypeText}>Aa</Text>
+        )}
       </View>
     </Pressable>
   );
@@ -111,7 +115,7 @@ export default function VaultScreen() {
       setError(null);
 
       // Serve from cache unless pull-to-refresh was triggered
-      const cached = !isRefresh && getCachedList("vault");
+      const cached = isRefresh ? null : getCachedList("vault");
       const data = cached ?? await getCapsules();
       if (!cached) setCachedList("vault", data);
 
@@ -209,7 +213,14 @@ export default function VaultScreen() {
       {loading ? (
         <ActivityIndicator color={colors.primary} style={{ marginTop: 32 }} />
       ) : error ? (
-        <Pressable onPress={loadCapsules} style={styles.errorBox}>
+        <Pressable
+          onPress={() => {
+            invalidateList("vault");
+            setLoading(true);
+            loadCapsules();
+          }}
+          style={styles.errorBox}
+        >
           <Text style={styles.errorText}>{error}</Text>
           <Text style={styles.retryText}>Tap to retry</Text>
         </Pressable>
@@ -399,6 +410,13 @@ const makeStyles = (colors) => StyleSheet.create({
     lineHeight: 16,
     color: `${colors.primary}CC`,
     fontWeight: "500",
+  },
+  contentTypeText: {
+    fontSize: 13,
+    lineHeight: 14,
+    color: colors.mutedFg,
+    fontWeight: "600",
+    letterSpacing: -0.3,
   },
   datePillReady: {
     backgroundColor: colors.primary,

@@ -31,22 +31,22 @@ import PillButton from "@/components/ui/PillButton";
 // ─── Event type options ────────────────────────────────────────────────────────
 
 const EVENT_TYPES = [
-  { id: "birthday",    label: "Birthday",    icon: "balloon-outline" },
-  { id: "wedding",     label: "Wedding",     icon: "heart-outline" },
-  { id: "graduation",  label: "Graduation",  icon: "school-outline" },
+  { id: "birthday", label: "Birthday", icon: "balloon-outline" },
+  { id: "wedding", label: "Wedding", icon: "heart-outline" },
+  { id: "graduation", label: "Graduation", icon: "school-outline" },
   { id: "anniversary", label: "Anniversary", icon: "ribbon-outline" },
-  { id: "new_year",    label: "New Year",    icon: "sparkles-outline" },
-  { id: "sports",      label: "Sports",      icon: "football-outline" },
-  { id: "travel",      label: "Travel",      icon: "airplane-outline" },
-  { id: "festival",    label: "Festival",    icon: "bonfire-outline" },
-  { id: "music",       label: "Music",       icon: "musical-notes-outline" },
-  { id: "memorial",    label: "Memorial",    icon: "flower-outline" },
-  { id: "reunion",     label: "Reunion",     icon: "people-outline" },
-  { id: "other",       label: "Other",       icon: "ellipsis-horizontal-circle-outline" },
+  { id: "new_year", label: "New Year", icon: "sparkles-outline" },
+  { id: "sports", label: "Sports", icon: "football-outline" },
+  { id: "travel", label: "Travel", icon: "airplane-outline" },
+  { id: "festival", label: "Festival", icon: "bonfire-outline" },
+  { id: "music", label: "Music", icon: "musical-notes-outline" },
+  { id: "milestone", label: "Milestone", icon: "golf-outline" },
+  { id: "reunion", label: "Reunion", icon: "people-outline" },
+  { id: "other", label: "Other", icon: "flower-outline" },
 ];
 
 const CONTENT_TYPES = [
-  { id: "text",  label: "Text",  icon: "document-text-outline" },
+  { id: "text", label: "Text", icon: "document-text-outline" },
   { id: "photo", label: "Photo", icon: "image-outline" },
   { id: "video", label: "Video", icon: "videocam-outline" },
   { id: "voice", label: "Voice", icon: "mic-outline" },
@@ -81,7 +81,7 @@ function IOSPickerModal({ visible, title, value, mode, minimumDate, onChange, on
   return (
     <Modal visible={visible} transparent animationType="fade">
       <Pressable style={styles.modalOverlay} onPress={onDismiss}>
-        <Pressable style={styles.iosPickerCard} onPress={() => {}}>
+        <Pressable style={styles.iosPickerCard} onPress={() => { }}>
           <View style={styles.iosPickerHeader}>
             <Text style={styles.iosPickerTitle}>{title}</Text>
             <Pressable onPress={onConfirm} style={styles.iosDoneBtn}>
@@ -125,7 +125,8 @@ export default function CreateEventScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const navigation = useNavigation();
   const { user } = useAuth();
-  const { refreshQuota } = useQuota();
+  const { refreshQuota, quota } = useQuota();
+  const eventQuota = quota?.quotas?.find((q) => q.key === "events_per_week");
 
   // ── Core fields ──────────────────────────────────────────────────────────
   const [title, setTitle] = useState("");
@@ -151,7 +152,7 @@ export default function CreateEventScreen() {
   const [maxParticipants, setMaxParticipants] = useState("");
 
   // ── Allowed content types ─────────────────────────────────────────────────
-  const [allowedTypes, setAllowedTypes] = useState(["text", "photo", "video", "voice"]);
+  const [allowedTypes, setAllowedTypes] = useState([]);
 
   // ── Banner image ─────────────────────────────────────────────────────────
   const [bannerUri, setBannerUri] = useState(null);
@@ -324,8 +325,8 @@ export default function CreateEventScreen() {
     if (Platform.OS !== "android" || !activePicker) return null;
     const currentVal =
       activePicker.field === "entryStart" ? entryStart :
-      activePicker.field.startsWith("entryClose") ? entryClose :
-      unlockDate;
+        activePicker.field.startsWith("entryClose") ? entryClose :
+          unlockDate;
     return (
       <DateTimePicker
         value={currentVal}
@@ -352,6 +353,28 @@ export default function CreateEventScreen() {
         <Text style={styles.headerTitle}>CREATE EVENT</Text>
         <View style={{ width: 40 }} />
       </View>
+
+      {/* Quota pill */}
+      {eventQuota && eventQuota.limit !== null && (
+        <View style={styles.quotaPillRow}>
+          <View style={[
+            styles.quotaPill,
+            eventQuota.used >= eventQuota.limit && styles.quotaPillFull,
+          ]}>
+            <Ionicons
+              name="calendar-outline"
+              size={11}
+              color={eventQuota.used >= eventQuota.limit ? colors.mutedFg : colors.primary}
+            />
+            <Text style={[
+              styles.quotaPillText,
+              eventQuota.used >= eventQuota.limit && { color: colors.mutedFg },
+            ]}>
+              {Math.max(0, eventQuota.limit - eventQuota.used)} of {eventQuota.limit} left this week
+            </Text>
+          </View>
+        </View>
+      )}
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
       <ScrollView
@@ -421,7 +444,7 @@ export default function CreateEventScreen() {
           <Text style={styles.fieldLabel}>CUSTOM URL (OPTIONAL)</Text>
           <TextInput
             style={styles.subtitleInput}
-            placeholder="e.g. class-of-2025-gwu"
+            placeholder="e.g. your-event-name"
             placeholderTextColor={colors.mutedFg}
             value={slugInput}
             onChangeText={handleSlugChange}
@@ -721,6 +744,32 @@ const makeStyles = (colors) => StyleSheet.create({
     fontWeight: "600",
     letterSpacing: 2,
     textTransform: "uppercase",
+  },
+  quotaPillRow: {
+    alignItems: "center",
+    paddingTop: 12,
+  },
+  quotaPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: `${colors.primary}15`,
+    borderWidth: 1,
+    borderColor: `${colors.primary}40`,
+  },
+  quotaPillFull: {
+    backgroundColor: `${colors.mutedFg}15`,
+    borderColor: `${colors.mutedFg}40`,
+  },
+  quotaPillText: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "600",
+    color: colors.primary,
+    letterSpacing: 0.3,
   },
   content: {
     padding: 20,

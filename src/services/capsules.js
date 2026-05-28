@@ -2,7 +2,8 @@ import api from "./api";
 
 export const getCapsules = async () => {
   const res = await api.get("/capsules/");
-  return res.data;
+  // Backend may return { results: [...] } or a plain array
+  return Array.isArray(res.data) ? res.data : (res.data.results ?? []);
 };
 
 export const getCapsule = async (id) => {

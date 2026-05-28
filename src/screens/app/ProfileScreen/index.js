@@ -23,6 +23,7 @@ import { getProfile, uploadAvatar } from "@/services/user";
 import { getCapsules } from "@/services/capsules";
 import { normalizeCapsule } from "@/utils/normalize";
 import { formatDate } from "@/utils/date";
+import { getCachedList, setCachedList, invalidateList } from "@/utils/capsuleCache";
 
 // ─── Pinned capsule card ───────────────────────────────────────────────────────
 
@@ -75,12 +76,17 @@ export default function ProfileScreen() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [viewingAvatar, setViewingAvatar] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     try {
+      // Serve profile + capsules from cache unless forced (e.g. pull-to-refresh)
+      const cachedProfile  = !force && getCachedList("profile");
+      const cachedCapsules = !force && getCachedList("vault");
+
       const [profileData, capsulesData] = await Promise.all([
-        getProfile(),
-        getCapsules(),
+        cachedProfile  ?? getProfile().then(d => { setCachedList("profile", d); return d; }),
+        cachedCapsules ?? getCapsules().then(d => { setCachedList("vault",   d); return d; }),
       ]);
+
       setProfile(profileData);
       if (profileData.avatar) setAvatarUrl(profileData.avatar);
       setCapsules(capsulesData.map((c) => normalizeCapsule(c, user?.id)));
@@ -93,17 +99,11 @@ export default function ProfileScreen() {
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    try {
-      const [profileData, capsulesData] = await Promise.all([
-        getProfile(),
-        getCapsules(),
-      ]);
-      setProfile(profileData);
-      if (profileData.avatar) setAvatarUrl(profileData.avatar);
-      setCapsules(capsulesData.map((c) => normalizeCapsule(c, user?.id)));
-    } catch {}
+    invalidateList("profile");
+    invalidateList("vault");
+    await load(true);
     setRefreshing(false);
-  }, [user?.id]);
+  }, [load]);
 
   useEffect(() => {
     load();

@@ -55,6 +55,7 @@ function AppInner() {
 export default function App() {
   const [fontsLoaded, fontError] = useFonts({
     Moul: require("./assets/fonts/Moul.ttf"),
+    MrsSans: require("./assets/fonts/MrsSans.ttf"),
   });
 
   useEffect(() => {

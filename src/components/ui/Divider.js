@@ -19,8 +19,8 @@ const makeStyles = (colors) => StyleSheet.create({
   dividerRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 12,
-    marginBottom: 20,
+    marginTop: 26,
+    marginBottom: 30,
     gap: 10,
     paddingHorizontal: 15,
   },

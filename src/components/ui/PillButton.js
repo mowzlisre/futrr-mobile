@@ -5,7 +5,8 @@ import { useTheme } from "@/hooks/useTheme";
  * Shared pill-shaped button.
  *
  * Props:
- *   label      — button text
+ *   label      — button text (used when no children supplied)
+ *   children   — custom content (icons + text + anything). Takes precedence over label.
  *   onPress    — handler
  *   loading    — shows spinner, disables press
  *   disabled   — dims and disables press
@@ -15,6 +16,7 @@ import { useTheme } from "@/hooks/useTheme";
  */
 export default function PillButton({
   label,
+  children,
   onPress,
   loading = false,
   disabled = false,
@@ -69,6 +71,8 @@ export default function PillButton({
     >
       {loading ? (
         <ActivityIndicator size="small" color={textColor} />
+      ) : children !== undefined ? (
+        children
       ) : (
         <Text style={[styles.label, { fontSize, color: textColor }]}>{label}</Text>
       )}

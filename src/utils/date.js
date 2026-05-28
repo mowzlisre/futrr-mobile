@@ -29,14 +29,17 @@ export const getCountdown = (date) => {
   const target = new Date(date);
   const diff = target - now;
 
-  if (diff <= 0) return { days: 0, hours: 0, mins: 0, secs: 0 };
+  if (diff <= 0) return { years: 0, days: 0, hours: 0, mins: 0, secs: 0 };
 
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-  const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-  const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-  const secs = Math.floor((diff % (1000 * 60)) / 1000);
+  const totalSecs  = Math.floor(diff / 1000);
+  const years      = Math.floor(totalSecs / (365 * 86400));
+  const remSecs    = totalSecs - years * 365 * 86400;
+  const days       = Math.floor(remSecs / 86400);
+  const hours      = Math.floor((remSecs % 86400) / 3600);
+  const mins       = Math.floor((remSecs % 3600) / 60);
+  const secs       = Math.floor(remSecs % 60);
 
-  return { days, hours, mins, secs };
+  return { years, days, hours, mins, secs };
 };
 
 export const getProgress = (sealedAt, unlocksAt) => {

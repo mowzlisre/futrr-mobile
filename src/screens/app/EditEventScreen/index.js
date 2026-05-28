@@ -441,7 +441,7 @@ export default function EditEventScreen() {
           <Text style={styles.fieldLabel}>CUSTOM URL (OPTIONAL)</Text>
           <TextInput
             style={styles.subtitleInput}
-            placeholder="e.g. class-of-2025-gwu"
+            placeholder="e.g. your-event-name"
             placeholderTextColor={colors.mutedFg}
             value={slugInput}
             onChangeText={handleSlugChange}

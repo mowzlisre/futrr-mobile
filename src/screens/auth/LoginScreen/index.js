@@ -156,12 +156,17 @@ export default function LoginScreen() {
           </Pressable>
 
           <PillButton
-            label={loading ? "Opening vault..." : "Open the vault"}
             onPress={handleLogin}
             loading={loading}
             fullWidth
             size="lg"
-          />
+          >
+            <View alignItems="center" flexDirection="row" justifyContent="center">
+              <Text style={{color: colors.primaryFg, textAlign: "center", width: "100%", fontWeight: "400", fontFamily: "System", fontSize: 14, textTransform: "uppercase"}}>
+                {loading? "Opening vault..." : "Open the vault"}
+              </Text>
+            </View>
+          </PillButton>
 
           
 
@@ -185,33 +190,44 @@ export default function LoginScreen() {
           { transform: [{ translateY: bottomSlideDown }], opacity: bottomOpacity },
         ]}
       >
-        <View style={{ paddingHorizontal: 32 }}>
+        <View style={{ paddingHorizontal: 32, paddingBottom: 16 }}>
           <PillButton
-            label="Continue with Apple"
             onPress={() => navigation.navigate(ROUTES.ONBOARDING, { startStep: 3, isOAuthFlow: true, oauthProvider: "apple" })}
             variant="secondary"
             fullWidth
             size="lg"
-          />
+          >
+            <View alignItems="center" flexDirection="row" justifyContent="center">
+              <Ionicons name="logo-apple" size={18} color={colors.foreground} style={{ marginRight: 8 }} />
+              <Text style={{color: colors.foreground}}>Continue with Apple</Text>
+            </View>
+          </PillButton>
 
           <View style={{ height: 10 }} />
 
           <PillButton
-            label="Continue with Google"
             onPress={() => navigation.navigate(ROUTES.ONBOARDING, { startStep: 3, isOAuthFlow: true, oauthProvider: "google" })}
             variant="secondary"
             fullWidth
             size="lg"
-          />
-
+            >
+            <View alignItems="center" flexDirection="row" justifyContent="center">
+              <Ionicons name="logo-google" size={18} color={colors.foreground} style={{ marginRight: 8 }} />
+              <Text style={{color: colors.foreground}}>Continue with Google</Text>
+            </View>
+          </PillButton>
           <Divider />
 
           <PillButton
-            label="LOGIN WITH EMAIL"
             onPress={handleOpenForm}
             fullWidth
             size="lg"
-          />
+          >
+            <View alignItems="center" flexDirection="row" justifyContent="center">
+              <Ionicons name="mail-outline" size={18} color={colors.primaryFg} style={{ marginRight: 8 }} />
+              <Text style={{color: colors.primaryFg, fontWeight: "400", fontFamily: "System", fontSize: 12}}>LOGIN WITH EMAIL </Text>
+            </View>
+          </PillButton>
         </View>
 
         <Pressable onPress={() => navigation.navigate(ROUTES.ONBOARDING)} style={{ alignItems: "center", marginBottom: 16 }}>

@@ -7,12 +7,13 @@ const CAPSULE_TYPE_MAP = {
   public: "COLLECTIVE",
 };
 
+// Media gets priority over text — text is shown as "Aa" (no icon) by the renderer.
 function contentIcon(capsule) {
-  const types = capsule.allowed_content_types ?? [];
+  const types = capsule.content_types ?? [];
   if (types.includes("video")) return "videocam-outline";
-  if (types.includes("photo")) return "camera-outline";
+  if (types.includes("photo")) return "images-outline";
   if (types.includes("voice")) return "mic-outline";
-  return "text-outline";
+  return null;
 }
 
 /**

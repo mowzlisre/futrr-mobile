@@ -1,26 +1,12 @@
 import {
   View, Text, Modal, StyleSheet, Animated,
-  Easing, Pressable, useWindowDimensions, Alert,
+  Easing, Pressable, Alert,
 } from "react-native";
 import { useEffect, useRef, useState, useMemo } from "react";
+import Glitters from "@/components/Glitters";
 import { useTheme } from "@/hooks/useTheme";
 import { fonts } from "@/constants";
-
-// ─── Number → words ───────────────────────────────────────────────────────────
-const ONES = ["","one","two","three","four","five","six","seven","eight","nine",
-              "ten","eleven","twelve","thirteen","fourteen","fifteen","sixteen",
-              "seventeen","eighteen","nineteen"];
-const TENS = ["","","twenty","thirty","forty","fifty"];
-
-function toWords(n) {
-  n = Math.max(0, Math.floor(n));
-  if (n === 0) return "zero";
-  if (n < 20)  return ONES[n];
-  if (n < 100) return TENS[Math.floor(n / 10)] + (n % 10 ? " " + ONES[n % 10] : "");
-  const h = Math.floor(n / 100);
-  const r = n % 100;
-  return ONES[h] + " hundred" + (r ? " " + toWords(r) : "");
-}
+import { toWords } from "@/utils/numberWords";
 
 // ─── Date formatting ──────────────────────────────────────────────────────────
 const MONTH_NAMES = [
@@ -34,74 +20,18 @@ function fmtUnlockDate(d) {
 }
 
 function breakdown(target) {
-  const ms       = Math.max(0, (target instanceof Date ? target : new Date(target)) - Date.now());
-  const total    = Math.floor(ms / 1000);
-  const days     = Math.floor(total / 86400);
-  const hours    = Math.floor((total % 86400) / 3600);
-  const minutes  = Math.floor((total % 3600) / 60);
-  return { days, hours, minutes };
+  const ms      = Math.max(0, (target instanceof Date ? target : new Date(target)) - Date.now());
+  const total   = Math.floor(ms / 1000);
+  const years   = Math.floor(total / (365 * 86400));
+  const remSecs = total - years * 365 * 86400;
+  const days    = Math.floor(remSecs / 86400);
+  const hours   = Math.floor((remSecs % 86400) / 3600);
+  const minutes = Math.floor((remSecs % 3600) / 60);
+  return { years, days, hours, minutes };
 }
 
-// ─── Glitter dot ──────────────────────────────────────────────────────────────
-const GLITTER_CHARS = ["✦", "✧", "·", "⋆", "*"];
-
-function GlitterDot({ x, y, size, duration, delay, color, char }) {
-  const op = useRef(new Animated.Value(0)).current;
-  const sc = useRef(new Animated.Value(0.6)).current;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.delay(delay),
-        Animated.parallel([
-          Animated.timing(op, { toValue: 1,   duration: duration * 0.4, useNativeDriver: true }),
-          Animated.timing(sc, { toValue: 1,   duration: duration * 0.4, useNativeDriver: true }),
-        ]),
-        Animated.parallel([
-          Animated.timing(op, { toValue: 0,   duration: duration * 0.6, useNativeDriver: true }),
-          Animated.timing(sc, { toValue: 0.6, duration: duration * 0.6, useNativeDriver: true }),
-        ]),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, []);
-
-  return (
-    <Animated.Text
-      style={{
-        position: "absolute", left: x, top: y,
-        fontSize: size, color,
-        opacity: op, transform: [{ scale: sc }],
-      }}
-    >
-      {char}
-    </Animated.Text>
-  );
-}
-
-function Glitters({ color }) {
-  const { width, height } = useWindowDimensions();
-  const dots = useMemo(() =>
-    Array.from({ length: 30 }, (_, i) => ({
-      id: i,
-      x: Math.random() * (width - 20),
-      y: Math.random() * (height - 20),
-      size: Math.random() * 10 + 8,
-      duration: 1400 + Math.random() * 2000,
-      delay: Math.random() * 2500,
-      char: GLITTER_CHARS[Math.floor(Math.random() * GLITTER_CHARS.length)],
-    })),
-    [width, height]
-  );
-
-  return (
-    <View style={StyleSheet.absoluteFill} pointerEvents="none">
-      {dots.map(d => (
-        <GlitterDot key={d.id} {...d} color={color} />
-      ))}
-    </View>
-  );
+function plural(n, word) {
+  return n === 1 ? word : word + "s";
 }
 
 // ─── Scramble word ────────────────────────────────────────────────────────────
@@ -113,11 +43,12 @@ function ScrambleWord({ word, delay, style, onDone }) {
 
   useEffect(() => {
     const t0 = setTimeout(() => {
-      Animated.timing(op, { toValue: 1, duration: 250, useNativeDriver: true }).start();
+      // Slow fade-in before scramble begins
+      Animated.timing(op, { toValue: 1, duration: 600, useNativeDriver: true }).start();
 
-      const steps     = 14;
-      const stepMs    = 55;
-      let   step      = 0;
+      const steps  = 18;   // more steps → longer scramble
+      const stepMs = 70;   // slower per-step → more readable
+      let   step   = 0;
 
       const iv = setInterval(() => {
         step++;
@@ -149,8 +80,11 @@ function ScrambleWord({ word, delay, style, onDone }) {
 }
 
 // ─── Main overlay ─────────────────────────────────────────────────────────────
-const TEXT_WHITE = "#F5EFE6";
-const TEXT_DIM   = "rgba(245,239,230,0.45)";
+// Theme-aware text colours — set per-render based on isDark
+const DARK_TEXT  = "#F5EFE6";
+const DARK_DIM   = "rgba(245,239,230,0.45)";
+const LIGHT_TEXT = "#1A1816";
+const LIGHT_DIM  = "rgba(26,24,22,0.45)";
 
 export default function SealingOverlay({
   visible,
@@ -159,8 +93,10 @@ export default function SealingOverlay({
   unlockDate = new Date(),
   onDone,
 }) {
-  const { colors } = useTheme();
-  const GOLD = colors.primary;
+  const { colors, isDark } = useTheme();
+  const GOLD     = colors.primary;
+  const TEXT_PRIMARY = isDark ? DARK_TEXT  : LIGHT_TEXT;
+  const TEXT_DIM     = isDark ? DARK_DIM   : LIGHT_DIM;
 
   // Phase: idle → scrambling → waiting → done
   const [phase,    setPhase]    = useState("idle");
@@ -179,12 +115,13 @@ export default function SealingOverlay({
   const progress  = useRef(new Animated.Value(0)).current; // 0 → 1
 
   // Word list
-  const { days, hours, minutes } = breakdown(unlockDate);
+  const { years, days, hours, minutes } = breakdown(unlockDate);
   const lines = [
-    { text: toWords(days),    unit: "days"    },
-    { text: toWords(hours),   unit: "hours"   },
-    { text: toWords(minutes), unit: "minutes" },
-  ];
+    years   > 0 && { text: toWords(years),   unit: plural(years,   "year")   },
+    days    > 0 && { text: toWords(days),     unit: plural(days,    "day")    },
+    hours   > 0 && { text: toWords(hours),    unit: plural(hours,   "hour")   },
+    minutes > 0 && { text: toWords(minutes),  unit: plural(minutes, "minute") },
+  ].filter(Boolean);
 
   const wordDelays = [];
   lines.forEach((_, i) => {
@@ -279,7 +216,7 @@ export default function SealingOverlay({
 
   return (
     <Modal visible transparent animationType="fade" statusBarTranslucent>
-      <View style={styles.backdrop}>
+      <View style={[styles.backdrop, { backgroundColor: isDark ? "#0D0C0A" : "#FAF8F4" }]}>
 
         {/* ── Glitters ───────────────────────────────────────────── */}
         <Glitters color={`${GOLD}90`} />
@@ -292,13 +229,13 @@ export default function SealingOverlay({
               <ScrambleWord
                 word={line.text}
                 delay={wordDelays[i * 2]}
-                style={[styles.numberWord, { fontFamily: fonts.serifBold, color: TEXT_WHITE }]}
+                style={[styles.numberWord, { fontFamily: fonts.serifBold, color: TEXT_PRIMARY }]}
               />
               {/* Unit label — scrambles in after */}
               <ScrambleWord
                 word={line.unit}
                 delay={wordDelays[i * 2 + 1]}
-                style={[styles.unitLabel, { fontFamily: fonts.serif, color: `${GOLD}CC` }]}
+                style={[styles.unitLabel, { fontFamily: fonts.serif, color: GOLD }]}
               />
             </View>
           ))}
@@ -337,7 +274,7 @@ export default function SealingOverlay({
               <Text style={[styles.unlockSentence, { color: TEXT_DIM, fontFamily: fonts.serif }]}>
                 Your memory will unlock on
               </Text>
-              <Text style={[styles.unlockDateText, { color: TEXT_WHITE, fontFamily: fonts.serifBold }]}>
+              <Text style={[styles.unlockDateText, { color: TEXT_PRIMARY, fontFamily: fonts.serifBold }]}>
                 {fmtUnlockDate(unlockDate instanceof Date ? unlockDate : new Date(unlockDate))}
               </Text>
             </Animated.View>
@@ -353,7 +290,7 @@ export default function SealingOverlay({
                   { borderColor: `${GOLD}70`, opacity: pressed ? 0.7 : 1 },
                 ]}
               >
-                <Text style={[styles.closeBtnText, { color: TEXT_WHITE, fontFamily: fonts.serif }]}>
+                <Text style={[styles.closeBtnText, { color: TEXT_PRIMARY, fontFamily: fonts.serif }]}>
                   close
                 </Text>
               </Pressable>
@@ -369,7 +306,6 @@ export default function SealingOverlay({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: "#0D0C0A",
     justifyContent: "space-between",
     paddingVertical: 72,
     paddingHorizontal: 40,

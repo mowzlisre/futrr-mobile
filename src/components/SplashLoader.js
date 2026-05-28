@@ -3,9 +3,7 @@ import { useTheme } from "@/hooks/useTheme";
 
 export default function SplashLoader() {
   const { colors, isDark } = useTheme();
-  const logo = isDark
-    ? require("../../assets/futrr-light.png")
-    : require("../../assets/futrr-light.png");
+  const logo = require("../../assets/futrr-banner-transparent.png");
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -23,5 +21,5 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
   bottom: { paddingBottom: 52, alignItems: "center" },
-  logo: { width: 80, height: 32, opacity: 0.5 },
+  logo: { width: 80, height: 32, opacity: 0.8 },
 });

@@ -45,73 +45,7 @@ import { hapticSuccess, hapticError } from "@/utils/haptics";
 import PillButton from "@/components/ui/PillButton";
 import SealingOverlay from "@/components/SealingOverlay";
 
-// ─── RecordingWaveform ────────────────────────────────────────────────────────
-
-const NUM_BARS = 24;
-const BAR_MIN_H = 3;
-
-function RecordingWaveform({ isActive }) {
-  const { colors } = useTheme();
-  const animVals = useRef(
-    Array.from({ length: NUM_BARS }, () => new Animated.Value(BAR_MIN_H))
-  ).current;
-
-  useEffect(() => {
-    if (isActive) {
-      const anims = animVals.map((val, i) => {
-        const maxH = BAR_MIN_H + 4 + (i % 5) * 7; // 7..31
-        const up = Animated.timing(val, {
-          toValue: maxH,
-          duration: 300 + (i % 4) * 80,
-          useNativeDriver: false,
-        });
-        const down = Animated.timing(val, {
-          toValue: BAR_MIN_H,
-          duration: 300 + (i % 4) * 80,
-          useNativeDriver: false,
-        });
-        return Animated.loop(Animated.sequence([up, down]));
-      });
-      Animated.stagger(25, anims).start();
-      return () => {
-        anims.forEach((a) => a.stop());
-        animVals.forEach((v) => v.setValue(BAR_MIN_H));
-      };
-    } else {
-      animVals.forEach((v) => v.setValue(BAR_MIN_H));
-    }
-  }, [isActive]);
-
-  return (
-    <View style={waveStyles.container}>
-      {animVals.map((val, i) => (
-        <Animated.View
-          key={i}
-          style={[
-            waveStyles.bar,
-            {
-              height: val,
-              backgroundColor: isActive ? colors.primary : `${colors.primary}55`,
-            },
-          ]}
-        />
-      ))}
-    </View>
-  );
-}
-
-const waveStyles = StyleSheet.create({
-  container: {
-    flexDirection: "row",
-    alignItems: "center",
-    height: 44,
-    gap: 3,
-  },
-  bar: {
-    width: 3,
-    borderRadius: 2,
-  },
-});
+import RecordingWaveform from "@/components/RecordingWaveform";
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -613,7 +547,8 @@ export default function CreateCapsuleScreen() {
   const navigation = useNavigation();
   const route = useRoute();
   const { user } = useAuth();
-  const { refreshQuota } = useQuota();
+  const { refreshQuota, quota } = useQuota();
+  const capsuleQuota = quota?.quotas?.find((q) => q.key === "capsules_per_week");
 
   // Event participation context (passed from EventDetailScreen)
   const event = route.params?.event || null;
@@ -895,6 +830,28 @@ export default function CreateCapsuleScreen() {
         <Text style={styles.headerTitle}>{event ? "PARTICIPATE" : "SEAL A MOMENT"}</Text>
         <View style={{ width: 40 }} />
       </View>
+
+      {/* Quota pill */}
+      {capsuleQuota && capsuleQuota.limit !== null && (
+        <View style={styles.quotaPillRow}>
+          <View style={[
+            styles.quotaPill,
+            capsuleQuota.used >= capsuleQuota.limit && styles.quotaPillFull,
+          ]}>
+            <Ionicons
+              name="flash-outline"
+              size={11}
+              color={capsuleQuota.used >= capsuleQuota.limit ? colors.mutedFg : colors.primary}
+            />
+            <Text style={[
+              styles.quotaPillText,
+              capsuleQuota.used >= capsuleQuota.limit && { color: colors.mutedFg },
+            ]}>
+              {Math.max(0, capsuleQuota.limit - capsuleQuota.used)} of {capsuleQuota.limit} left this week
+            </Text>
+          </View>
+        </View>
+      )}
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
       <ScrollView
@@ -1405,6 +1362,32 @@ const makeStyles = (colors) => StyleSheet.create({
     fontWeight: "600",
     letterSpacing: 2,
     textTransform: "uppercase",
+  },
+  quotaPillRow: {
+    alignItems: "center",
+    paddingTop: 12,
+  },
+  quotaPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: `${colors.primary}15`,
+    borderWidth: 1,
+    borderColor: `${colors.primary}40`,
+  },
+  quotaPillFull: {
+    backgroundColor: `${colors.mutedFg}15`,
+    borderColor: `${colors.mutedFg}40`,
+  },
+  quotaPillText: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "600",
+    color: colors.primary,
+    letterSpacing: 0.3,
   },
   content: {
     padding: 20,

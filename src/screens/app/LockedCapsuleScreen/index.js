@@ -9,6 +9,8 @@ import {
   ActivityIndicator,
   Alert,
   Share,
+  Animated,
+  Easing,
 } from "react-native";
 import * as Notifications from "expo-notifications";
 import { useState, useEffect, useRef, useMemo } from "react";
@@ -19,19 +21,24 @@ import { useNavigation, useRoute } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ROUTES, fonts } from "@/constants";
 import { useTheme } from "@/hooks/useTheme";
-import { RecipientsSection } from "@/components/capsule/RecipientsSection";
+import { RecipientsSection, RecipientsModal } from "@/components/capsule/RecipientsSection";
 import { getCountdown, getProgress, formatLongDate } from "@/utils/date";
+import { toWords } from "@/utils/numberWords";
 import { unlockCapsule } from "@/services/capsules";
 import { normalizeCapsule } from "@/utils/normalize";
 import { useAuth } from "@/hooks/useAuth";
 import { hapticSuccess, hapticError } from "@/utils/haptics";
 import PillButton from "@/components/ui/PillButton";
+import Glitters from "@/components/Glitters";
+import ShareOverlay from "@/components/ShareOverlay";
+import { captureRef } from "react-native-view-shot";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 function isExpired(unlocksAt) {
   return new Date() >= new Date(unlocksAt);
 }
+
 
 // ─── SealLogo styles ──────────────────────────────────────────────────────────
 
@@ -133,12 +140,206 @@ function SealLogo({ unlockable }) {
   );
 }
 
+// ─── ScrambleWord (same as SealingOverlay) ────────────────────────────────────
+
+const ALPHA = "abcdefghijklmnopqrstuvwxyz";
+
+function ScrambleWord({ word, delay = 0, style, onDone }) {
+  const [display, setDisplay] = useState(ALPHA.slice(0, Math.max(word.length, 1)));
+  const op = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      Animated.timing(op, { toValue: 1, duration: 600, useNativeDriver: true }).start();
+      const steps = 18;
+      const stepMs = 65;
+      let step = 0;
+      const iv = setInterval(() => {
+        step++;
+        if (step >= steps) {
+          clearInterval(iv);
+          setDisplay(word);
+          onDone?.();
+        } else {
+          const revealed = Math.floor((step / steps) * word.length);
+          setDisplay(
+            Array.from(word).map((c, i) =>
+              c === " " ? " " : i < revealed ? c : ALPHA[Math.floor(Math.random() * 26)]
+            ).join("")
+          );
+        }
+      }, stepMs);
+    }, delay);
+    return () => clearTimeout(t);
+  }, []);
+
+  return <Animated.Text style={[style, { opacity: op }]}>{display}</Animated.Text>;
+}
+
+// ─── AnimatedCountdown ────────────────────────────────────────────────────────
+// Scrambles in on mount, then switches to plain live-updating text.
+
+function cdPlural(n, word) {
+  return n === 1 ? word : word + "s";
+}
+
+function getCountdownUnits(cd) {
+  return [
+    cd.years > 0 && { key: "years",   value: cd.years,  label: cdPlural(cd.years,   "year")   },
+    cd.days  > 0 && { key: "days",    value: cd.days,   label: cdPlural(cd.days,    "day")    },
+    cd.hours > 0 && { key: "hours",   value: cd.hours,  label: cdPlural(cd.hours,   "hour")   },
+    cd.mins  > 0 && { key: "minutes", value: cd.mins,   label: cdPlural(cd.mins,    "minute") },
+  ].filter(Boolean);
+}
+
+function AnimatedCountdown({ countdown, valueStyle, labelStyle, dotStyle, exitOpacity }) {
+  const UNITS = getCountdownUnits(countdown);
+
+  const total = Math.max(1, UNITS.length * 2);
+  const doneRef = useRef(0);
+  const [animDone, setAnimDone] = useState(false);
+
+  const onWordDone = () => {
+    doneRef.current++;
+    if (doneRef.current >= total) setAnimDone(true);
+  };
+
+  return (
+    <>
+      {UNITS.map(({ key, label, value }, i) => (
+        <Animated.View key={key} style={{ gap: 1, opacity: exitOpacity }}>
+          {!animDone ? (
+            <>
+              <ScrambleWord word={toWords(value)} delay={i * 750} style={valueStyle} onDone={onWordDone} />
+              <ScrambleWord word={label} delay={i * 750 + 420} style={labelStyle} onDone={onWordDone} />
+            </>
+          ) : (
+            <>
+              <Text style={valueStyle}>{toWords(countdown[key === "minutes" ? "mins" : key] ?? 0)}</Text>
+              <Text style={labelStyle}>{cdPlural(countdown[key === "minutes" ? "mins" : key] ?? 0, key === "minutes" ? "minute" : key.slice(0, -1))}</Text>
+            </>
+          )}
+          {i < UNITS.length - 1 && <Text style={dotStyle}>·</Text>}
+        </Animated.View>
+      ))}
+    </>
+  );
+}
+
+// ─── ReadyState ───────────────────────────────────────────────────────────────
+
+const LINES = [
+  "we know the world has changed\na lot in this time",
+  "but we also believe your heart\nhas stayed the same since the\nmoment you locked this!",
+];
+
+function ReadyState({ capsule, onReady, TEXT_PRIMARY, TEXT_DIM, GOLD, serifBold, serif, exitOpacity }) {
+  // Elapsed time = unlock date - sealed date
+  const elapsed    = Math.max(0, new Date(capsule.unlocksAt) - new Date(capsule.sealedAt));
+  const totalSecs  = Math.floor(elapsed / 1000);
+  const elYears    = Math.floor(totalSecs / (365 * 86400));
+  const elRemSecs  = totalSecs - elYears * 365 * 86400;
+  const elDays     = Math.floor(elRemSecs / 86400);
+  const elHours    = Math.floor((elRemSecs % 86400) / 3600);
+  const elMins     = Math.floor((elRemSecs % 3600) / 60);
+
+  const units = [
+    { value: elYears, unit: cdPlural(elYears, "year")   },
+    { value: elDays,  unit: cdPlural(elDays,  "day")    },
+    { value: elHours, unit: cdPlural(elHours, "hour")   },
+    { value: elMins,  unit: cdPlural(elMins,  "minute") },
+  ].filter(u => u.value > 0);
+
+  // One animated value per line + the scramble done gate
+  const lineAnims = useRef(LINES.map(() => ({
+    op: new Animated.Value(0),
+    y:  new Animated.Value(20),
+  }))).current;
+
+  const totalScramble = useRef(units.length * 2); // word + unit label
+  const doneCount = useRef(0);
+
+  const onScrambleDone = () => {
+    doneCount.current++;
+    if (doneCount.current < totalScramble.current) return;
+
+    // All words scrambled — animate lines in sequence
+    const seq = lineAnims.flatMap((anim, i) => [
+      Animated.delay(i === 0 ? 300 : 400),
+      Animated.parallel([
+        Animated.timing(anim.op, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(anim.y,  { toValue: 0, duration: 700, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      ]),
+    ]);
+
+    Animated.sequence([
+      ...seq,
+      Animated.delay(500),
+    ]).start(() => onReady?.());
+  };
+
+  // Edge case: no elapsed time units
+  useEffect(() => {
+    if (units.length === 0) {
+      setTimeout(() => onScrambleDone(), 200);
+    }
+  }, []);
+
+  return (
+    <View style={{ flex: 1, paddingVertical: 24, gap: 0 }}>
+      {/* Elapsed duration — exitOpacity applied directly on each unit wrapper */}
+      <View style={{ gap: 4, marginBottom: 32 }}>
+        {units.map(({ value, unit }, i) => (
+          <Animated.View key={unit} style={{ opacity: exitOpacity }}>
+            <ScrambleWord
+              word={toWords(value)}
+              delay={i * 750}
+              style={{ fontFamily: serifBold, fontSize: 38, lineHeight: 44, color: TEXT_PRIMARY, textTransform: "lowercase" }}
+              onDone={onScrambleDone}
+            />
+            <ScrambleWord
+              word={unit}
+              delay={i * 750 + 420}
+              style={{ fontSize: 10, letterSpacing: 3, textTransform: "uppercase", fontWeight: "600", color: GOLD }}
+              onDone={onScrambleDone}
+            />
+            {i < units.length - 1 && (
+              <Text style={{ fontSize: 16, color: `${GOLD}50`, marginVertical: 2 }}>·</Text>
+            )}
+          </Animated.View>
+        ))}
+      </View>
+
+      {/* Lines — enter via lineAnims, exit via exitOpacity on wrapper */}
+      {LINES.map((line, i) => (
+        <Animated.View
+          key={i}
+          style={{ opacity: exitOpacity, transform: [{ translateY: lineAnims[i].y }] }}
+        >
+          <Animated.Text
+            style={{
+              fontFamily: serif,
+              fontSize: 16,
+              lineHeight: 26,
+              color: TEXT_DIM,
+              marginBottom: 20,
+              fontStyle: "italic",
+              opacity: lineAnims[i].op,
+            }}
+          >
+            {line}
+          </Animated.Text>
+        </Animated.View>
+      ))}
+    </View>
+  );
+}
+
 // ─── main styles ─────────────────────────────────────────────────────────────
 
 const makeStyles = (colors) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
   },
   header: {
     flexDirection: "row",
@@ -148,237 +349,134 @@ const makeStyles = (colors) => StyleSheet.create({
     paddingVertical: 12,
   },
   headerBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.card,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: colors.border,
+    width: 40, height: 40, borderRadius: 20,
+    alignItems: "center", justifyContent: "center",
   },
   headerTitle: {
-    fontSize: 12,
-    lineHeight: 17,
-    color: colors.mutedFg,
-    letterSpacing: 2,
-    fontWeight: "500",
+    fontSize: 10,
+    letterSpacing: 2.5,
+    fontWeight: "600",
     textTransform: "uppercase",
   },
+  // ── Content (matches overlay: space-between top/bottom) ──
   content: {
-    alignItems: "center",
-    paddingHorizontal: 24,
-    paddingBottom: 40,
+    flexGrow: 1,
+    paddingHorizontal: 40,
+    paddingTop: 16,
+    paddingBottom: 16,
   },
   fromText: {
-    fontSize: 11,
-    lineHeight: 16,
-    color: colors.mutedFg,
-    letterSpacing: 2,
+    fontSize: 10,
+    letterSpacing: 2.5,
     textTransform: "uppercase",
-    marginBottom: 10,
+    fontWeight: "600",
+    marginBottom: 6,
   },
   capsuleTitle: {
     fontSize: 26,
-    fontWeight: "300",
-    color: colors.foreground,
-    textAlign: "center",
-    marginBottom: 10,
-    lineHeight: 34,
-    fontFamily: fonts.serif,
+    lineHeight: 32,
+    marginBottom: 8,
   },
   capsuleDescription: {
-    fontSize: 14,
-    color: colors.mutedFg,
-    textAlign: "center",
-    lineHeight: 21,
-    marginBottom: 16,
-    paddingHorizontal: 8,
+    fontSize: 15,
+    lineHeight: 23,
+    marginBottom: 28,
+    fontStyle: "italic",
   },
-  sealedBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginBottom: 20,
-    backgroundColor: colors.secondaryBackground,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  readyBadge: {
-    backgroundColor: `${colors.primary}15`,
-    borderColor: `${colors.primary}45`,
-  },
-  sealedBadgeText: {
-    fontSize: 12,
-    lineHeight: 17,
-    color: colors.mutedFg,
-    fontWeight: "500",
-  },
-  sealedPreviewCard: {
+  // ── Lettered countdown (identical to overlay) ──
+  unlockBtnWrap: {
     width: "100%",
-    backgroundColor: colors.card,
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: 9,
-    alignItems: "flex-start",
-    marginBottom: 12,
   },
-  sealedPreviewLine: {
-    height: 10,
-    width: "100%",
-    borderRadius: 5,
-    backgroundColor: `${colors.mutedFg}20`,
+  countdownBlock: {
+    marginTop: 24,
+    marginBottom: 28,
   },
-  sealedPreviewLockRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    alignSelf: "center",
-    paddingVertical: 8,
+  letteredUnit: {
+    gap: 1,
   },
-  sealedPreviewLabel: {
-    fontSize: 14,
-    color: `${colors.mutedFg}80`,
-    fontWeight: "400",
-  },
-  countdownCard: {
-    width: "100%",
-    backgroundColor: colors.card,
-    borderRadius: 20,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  opensIn: {
-    fontSize: 10,
-    lineHeight: 14,
-    color: colors.mutedFg,
-    letterSpacing: 2,
-    textTransform: "uppercase",
-    marginBottom: 16,
-  },
-  countdownRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 4,
-    marginBottom: 20,
-  },
-  countdownUnit: {
-    alignItems: "center",
-    minWidth: 52,
-  },
-  countdownValue: {
+  letteredValue: {
     fontSize: 36,
-    fontWeight: "600",
-    color: colors.foreground,
-    lineHeight: 40,
+    lineHeight: 46,
+    textTransform: "lowercase",
+    lineCount: 2
   },
-  countdownValueDim: {
-    color: colors.mutedFg,
-    fontWeight: "300",
-  },
-  countdownLabel: {
-    fontSize: 9,
-    lineHeight: 13,
-    color: colors.mutedFg,
-    letterSpacing: 1.5,
+  letteredLabel: {
+    fontSize: 11,
+    letterSpacing: 3,
     textTransform: "uppercase",
-    marginTop: 4,
+    fontWeight: "600",
   },
-  countdownSep: {
-    fontSize: 28,
-    color: colors.mutedFg,
-    fontWeight: "300",
-    marginBottom: 14,
+  letteredDot: {
+    fontSize: 18,
+    lineHeight: 20,
+    marginVertical: 1,
   },
-  progressContainer: {
+  // ── Progress (thin like overlay) ──
+  progressRow: {
     width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 14,
+    marginBottom: 20,
   },
   progressTrack: {
-    flex: 1,
-    height: 4,
-    backgroundColor: colors.secondaryBackground,
-    borderRadius: 2,
+    height: 2,
+    borderRadius: 1,
     overflow: "hidden",
   },
   progressFill: {
     height: "100%",
-    backgroundColor: colors.primary,
-    borderRadius: 2,
+    borderRadius: 1,
   },
-  progressText: {
-    fontSize: 11,
-    lineHeight: 16,
-    color: colors.mutedFg,
-    minWidth: 30,
-    textAlign: "right",
+  // ── Unlock sentence (identical to overlay) ──
+  unlockSentenceBlock: {
+    gap: 4,
+    marginBottom: 32,
   },
-  unlocksOn: {
-    fontSize: 12,
-    lineHeight: 17,
-    color: colors.mutedFg,
+  unlockSentence: {
+    fontSize: 13,
+    letterSpacing: 0.3,
   },
-  unlocksOnDate: {
-    color: colors.foreground,
-    fontWeight: "500",
+  unlockDate: {
+    fontSize: 18,
+    letterSpacing: 0.5,
+  },
+  remindedText: {
+    fontSize: 14,
+    letterSpacing: 0.3,
+    marginTop: 6,
+    fontStyle: "italic",
   },
   recipientsSection: {
     width: "100%",
     marginBottom: 16,
   },
-  openButton: {
-    width: "100%",
-    borderRadius: 16,
-    overflow: "hidden",
-    shadowColor: colors.primary,
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 10,
+  actionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    alignSelf: "stretch",
   },
-  openGradient: {
+  reminderBtn: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 10,
-    paddingVertical: 18,
-  },
-  openButtonText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: colors.primaryFg,
-    letterSpacing: 2,
-    textTransform: "uppercase",
-  },
-  reminderButton: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    paddingVertical: 16,
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: colors.border,
   },
-  reminderText: {
-    fontSize: 13,
-    color: colors.foreground,
-    fontWeight: "600",
+  reminderBtnText: {
+    fontSize: 14,
+    fontWeight: "400",
     letterSpacing: 1.5,
-    textTransform: "uppercase",
+  },
+  addRecipientBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
   },
   modalOverlay: {
     flex: 1,
@@ -501,21 +599,6 @@ const makeStyles = (colors) => StyleSheet.create({
   },
 });
 
-// ─── CountdownUnit ────────────────────────────────────────────────────────────
-
-function CountdownUnit({ value, label, dim }) {
-  const { colors } = useTheme();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  return (
-    <View style={styles.countdownUnit}>
-      <Text style={[styles.countdownValue, dim && styles.countdownValueDim]}>
-        {String(value).padStart(2, "0")}
-      </Text>
-      <Text style={styles.countdownLabel}>{label}</Text>
-    </View>
-  );
-}
-
 // ─── PassphraseModal ──────────────────────────────────────────────────────────
 
 function PassphraseModal({ visible, onConfirm, onDismiss, loading, prefilled, hint }) {
@@ -589,7 +672,7 @@ function PassphraseModal({ visible, onConfirm, onDismiss, loading, prefilled, hi
 // ─── main screen ─────────────────────────────────────────────────────────────
 
 export default function LockedCapsuleScreen() {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const navigation = useNavigation();
   const route = useRoute();
@@ -603,6 +686,15 @@ export default function LockedCapsuleScreen() {
   const [opening, setOpening] = useState(false);
   const [showPassphrase, setShowPassphrase] = useState(false);
   const [storedPassphrase, setStoredPassphrase] = useState(null);
+
+  // Per-section animated opacity values for the exit animation
+  const aFrom      = useRef(new Animated.Value(1)).current;
+  const aTitle     = useRef(new Animated.Value(1)).current;
+  const aDesc      = useRef(new Animated.Value(1)).current;
+  const aCountdown = useRef(new Animated.Value(1)).current;
+  const aProgress  = useRef(new Animated.Value(1)).current;
+  const aSentence  = useRef(new Animated.Value(1)).current;
+  const aReady     = useRef(new Animated.Value(1)).current; // ReadyState content
 
   // Try to pre-fill passphrase from SecureStore (stored at seal time for 7 days)
   useEffect(() => {
@@ -631,32 +723,65 @@ export default function LockedCapsuleScreen() {
     if (capsule.encryptionType === "self") {
       setShowPassphrase(true);
     } else {
-      doUnlock(null);
+      animateAndUnlock(null);
     }
   };
 
-  const doUnlock = async (passphrase) => {
+  // Fade sections out bottom→top, concurrently with the API call.
+  // Navigates once BOTH the animation AND the API call finish.
+  const animateAndUnlock = async (passphrase) => {
+    setShowPassphrase(false);
+    setOpening(true);
+
+    // Bottom-to-top exit stagger — slow and dramatic
+    const fadeOut = (anim) =>
+      Animated.timing(anim, { toValue: 0, duration: 500, easing: Easing.in(Easing.cubic), useNativeDriver: true });
+
+    const exitAnim = new Promise(resolve =>
+      Animated.stagger(140, [
+        fadeOut(btnOpacity),
+        fadeOut(aSentence),
+        fadeOut(aProgress),
+        fadeOut(aCountdown),
+        fadeOut(aReady),   // ReadyState elapsed-time letters + prose lines
+        fadeOut(aDesc),
+        fadeOut(aTitle),
+        fadeOut(aFrom),
+      ]).start(resolve)
+    );
+
+    const apiCall = unlockCapsule(capsule._id || capsule.id, passphrase)
+      .then(raw => normalizeCapsule(raw, user?.id));
+
     try {
-      setOpening(true);
-      setShowPassphrase(false);
-      const raw = await unlockCapsule(capsule._id || capsule.id, passphrase);
-      const unlocked = normalizeCapsule(raw, user?.id);
+      const [unlocked] = await Promise.all([apiCall, exitAnim]);
       hapticSuccess();
-      // Replace so the user can't navigate back to the locked view
       navigation.replace(ROUTES.UNLOCKED_CAPSULE, { capsule: unlocked });
     } catch (err) {
       hapticError();
-      const msg =
-        err?.response?.data?.error ||
-        err?.response?.data?.detail ||
-        "Failed to open capsule. Check your passphrase and try again.";
+      // Fade everything back in on failure
+      Animated.parallel([aFrom, aTitle, aDesc, aCountdown, aProgress, aSentence, aReady, btnOpacity].map(a =>
+        Animated.timing(a, { toValue: 1, duration: 300, useNativeDriver: true })
+      )).start();
+      const msg = err?.response?.data?.error || err?.response?.data?.detail || "Failed to open capsule.";
       Alert.alert("Could not open", msg);
     } finally {
       setOpening(false);
     }
   };
 
+  // Passphrase capsules call this after the modal
+  const doUnlock = (passphrase) => animateAndUnlock(passphrase);
+
   const [reminderSet, setReminderSet] = useState(false);
+  const [recipientsOpen, setRecipientsOpen] = useState(false);
+  const [recipients, setRecipients] = useState(capsule.recipients ?? []);
+  const viewRef = useRef(null);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [shareImageUri, setShareImageUri] = useState(null);
+  const [showShareOverlay, setShowShareOverlay] = useState(false);
+  const [btnVisible, setBtnVisible] = useState(false);
+  const btnOpacity = useRef(new Animated.Value(0)).current;
 
   const handleSetReminder = async () => {
     const unlockDate = new Date(capsule.unlocksAt);
@@ -686,144 +811,182 @@ export default function LockedCapsuleScreen() {
 
   const handleShare = async () => {
     try {
-      await Share.share({
-        message: `Check out this futrr capsule: https://futrr.app/capsule/${capsule.shareToken}`,
-        url: `https://futrr.app/capsule/${capsule.shareToken}`,
-      });
-    } catch (_) {}
+      setIsCapturing(true);
+      await new Promise(resolve => setTimeout(resolve, 80));
+
+      const uri = await captureRef(viewRef, { format: "png", quality: 0.95 });
+
+      setIsCapturing(false);
+      setShareImageUri(uri);
+      setShowShareOverlay(true);
+    } catch (_) {
+      setIsCapturing(false);
+    }
   };
 
 
+  const TEXT_PRIMARY = isDark ? "#F5EFE6" : "#1A1816";
+  const TEXT_DIM     = isDark ? "rgba(245,239,230,0.45)" : "rgba(26,24,22,0.45)";
+  const BG           = isDark ? "#0D0C0A" : "#FAF8F4";
+
   return (
-    <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} style={styles.headerBtn} accessibilityRole="button" accessibilityLabel="Go back">
-          <Ionicons name="chevron-back" size={24} color={colors.foreground} />
-        </Pressable>
-        <Text style={styles.headerTitle}>
-          {unlockable ? "READY TO OPEN" : "SEALED CAPSULE"}
-        </Text>
-        <Pressable onPress={handleShare} style={styles.headerBtn} accessibilityRole="button" accessibilityLabel="Share capsule">
-          <Ionicons name="share-outline" size={22} color={colors.foreground} />
-        </Pressable>
-      </View>
+    <View ref={viewRef} style={[styles.container, { backgroundColor: BG }]} collapsable={false}>
+      {/* Glitters — same as sealing overlay */}
+      <Glitters color={`${colors.primary}80`} />
 
-      <ScrollView
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Seal Logo — changes icon + glow when ready */}
-        <SealLogo unlockable={unlockable} />
-
-        {/* From */}
-        <Text style={styles.fromText}>FROM {capsule.from.toUpperCase()}</Text>
-
-        {/* Title */}
-        <Text style={styles.capsuleTitle}>{capsule.title}</Text>
-
-        {/* Description */}
-        {!!capsule.description && (
-          <Text style={styles.capsuleDescription}>{capsule.description}</Text>
-        )}
-
-        {/* Status badge */}
-        <View style={[styles.sealedBadge, unlockable && styles.readyBadge]}>
-          <Ionicons
-            name={unlockable ? "lock-open-outline" : "lock-closed-outline"}
-            size={13}
-            color={unlockable ? colors.primary : colors.mutedFg}
-          />
-          <Text
-            style={[
-              styles.sealedBadgeText,
-              unlockable && { color: colors.primary },
-            ]}
-          >
-            {unlockable ? "This capsule is ready to open" : "Sealed · Cannot be opened early"}
-          </Text>
-        </View>
-
-        {/* Countdown / ready card */}
-        <View
-          style={[
-            styles.countdownCard,
-            unlockable && { borderColor: `${colors.primary}40` },
-          ]}
-        >
-          <Text style={[styles.opensIn, unlockable && { color: colors.primary }]}>
-            {unlockable ? "TIME'S UP" : "OPENS IN"}
-          </Text>
-
-          <View style={styles.countdownRow}>
-            <CountdownUnit value={countdown.days} label="DAYS" dim={unlockable} />
-            <Text style={styles.countdownSep}>:</Text>
-            <CountdownUnit value={countdown.hours} label="HRS" dim={unlockable} />
-            <Text style={styles.countdownSep}>:</Text>
-            <CountdownUnit value={countdown.mins} label="MIN" dim={unlockable} />
-            <Text style={styles.countdownSep}>:</Text>
-            <CountdownUnit value={countdown.secs} label="SEC" dim={unlockable} />
-          </View>
-
-          {/* Progress */}
-          <View style={styles.progressContainer}>
-            <View style={styles.progressTrack}>
-              <View
-                style={[
-                  styles.progressFill,
-                  {
-                    width: unlockable
-                      ? "100%"
-                      : `${Math.round(progress * 100)}%`,
-                  },
-                ]}
-              />
-            </View>
-            <Text style={styles.progressText}>
-              {unlockable ? "100%" : `${Math.round(progress * 100)}%`}
+      <SafeAreaView style={{ flex: 1 }} edges={["top", "bottom"]}>
+        {/* Header — hidden during screenshot capture */}
+        {!isCapturing ? (
+          <View style={styles.header}>
+            <Pressable onPress={() => navigation.goBack()} style={styles.headerBtn}>
+              <Ionicons name="chevron-back" size={24} color={TEXT_PRIMARY} />
+            </Pressable>
+            <Text style={[styles.headerTitle, { color: TEXT_DIM }]}>
+              {unlockable ? "READY TO OPEN" : "SEALED CAPSULE"}
             </Text>
+            <Pressable onPress={handleShare} style={styles.headerBtn}>
+              <Ionicons name="share-outline" size={22} color={TEXT_PRIMARY} />
+            </Pressable>
           </View>
-
-          <Text style={styles.unlocksOn}>
-            {unlockable ? "Unlocked on " : "Unlocks on "}
-            <Text style={styles.unlocksOnDate}>
-              {formatLongDate(capsule.unlocksAt)}
-            </Text>
-          </Text>
-        </View>
-
-        {/* Recipients — hidden for public capsules */}
-        {!capsule.isPublic && (
-          <RecipientsSection
-            capsuleId={capsule._id || capsule.id}
-            recipients={capsule.recipients ?? []}
-            style={styles.recipientsSection}
-          />
-        )}
-
-        {/* ── Open Capsule Button (only when unlockable) ─────────────────── */}
-        {unlockable ? (
-          <PillButton
-            label={opening ? "Opening..." : "OPEN CAPSULE"}
-            onPress={handleOpenPress}
-            loading={opening}
-            fullWidth
-            size="lg"
-          />
         ) : (
-          <PillButton
-            label={reminderSet ? "REMINDER SET" : "SET REMINDER"}
-            onPress={handleSetReminder}
-            disabled={reminderSet}
-            variant="secondary"
-            fullWidth
-            size="lg"
-          />
+          <View style={styles.header} />
         )}
 
-      </ScrollView>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* From */}
+          <Animated.View style={{ opacity: aFrom }}>
+            {capsule.from === "You" || capsule.createdBy === user?.id ? (
+              <Text style={[styles.fromText, { color: TEXT_DIM }]}>A NOTE TO YOUR FUTURE</Text>
+            ) : (
+              <Text style={[styles.fromText, { color: TEXT_DIM }]}>FROM {capsule.from.toUpperCase()}</Text>
+            )}
+          </Animated.View>
 
-      {/* Passphrase modal — only for self-encrypted capsules */}
+          {/* Title */}
+          <Animated.View style={{ opacity: aTitle }}>
+            <Text style={[styles.capsuleTitle, { color: TEXT_PRIMARY, fontFamily: fonts.serifBold }]}>
+              {capsule.title}
+            </Text>
+          </Animated.View>
+
+          {/* Description */}
+          {!!capsule.description && (capsule.from === "You" || capsule.createdBy === user?.id) && (
+            <Animated.View style={{ opacity: aDesc }}>
+              <Text style={[styles.capsuleDescription, { color: TEXT_DIM, fontFamily: fonts.serif }]}>
+                {capsule.description}
+              </Text>
+            </Animated.View>
+          )}
+
+          {/* ── Lettered countdown / ready state ── */}
+          {unlockable ? (
+            <ReadyState
+              capsule={capsule}
+              TEXT_PRIMARY={TEXT_PRIMARY}
+              TEXT_DIM={TEXT_DIM}
+              GOLD={colors.primary}
+              serifBold={fonts.serifBold}
+              serif={fonts.serif}
+              exitOpacity={aReady}
+              onReady={() => {
+                setBtnVisible(true);
+                Animated.timing(btnOpacity, { toValue: 1, duration: 600, useNativeDriver: true }).start();
+              }}
+            />
+          ) : (
+            <>
+              <View style={styles.countdownBlock}>
+                <AnimatedCountdown
+                  countdown={countdown}
+                  exitOpacity={aCountdown}
+                  valueStyle={[styles.letteredValue, { fontFamily: fonts.serifBold, color: TEXT_PRIMARY }]}
+                  labelStyle={[styles.letteredLabel, { color: colors.primary }]}
+                  dotStyle={[styles.letteredDot, { color: `${colors.primary}50` }]}
+                />
+              </View>
+
+              <Animated.View style={[styles.progressRow, { opacity: aProgress }]}>
+                <View style={[styles.progressTrack, { backgroundColor: `${colors.primary}18` }]}>
+                  <View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%`, backgroundColor: colors.primary }]} />
+                </View>
+              </Animated.View>
+
+              <Animated.View style={[styles.unlockSentenceBlock, { opacity: aSentence }]}>
+                <Text style={[styles.unlockSentence, { color: TEXT_DIM, fontFamily: fonts.serif }]}>
+                  Your memory will unlock on
+                </Text>
+                <Text style={[styles.unlockDate, { color: TEXT_PRIMARY, fontFamily: fonts.serifBold }]}>
+                  {formatLongDate(capsule.unlocksAt)}
+                </Text>
+                {reminderSet && (
+                  <Text style={[styles.remindedText, { color: TEXT_DIM, fontFamily: fonts.serif }]}>
+                    and you will be reminded!
+                  </Text>
+                )}
+              </Animated.View>
+            </>
+          )}
+
+          {/* Action row — only shown when still locked */}
+          {!unlockable && !reminderSet && !isCapturing ? (
+            /* SET REMINDER + add-recipient — hidden during screenshot capture */
+            <View style={styles.actionRow}>
+              <Pressable
+                onPress={handleSetReminder}
+                style={({ pressed }) => [
+                  styles.reminderBtn,
+                  { borderColor: `${colors.primary}50`, opacity: pressed ? 0.7 : 1 },
+                ]}
+                accessibilityLabel="Set reminder"
+              >
+                <Ionicons name="notifications" size={17} color={`${colors.primary}AA`} />
+                <Text style={[styles.reminderBtnText, { color: `${colors.primary}AA` }]}>
+                  SET REMINDER
+                </Text>
+              </Pressable>
+
+              {!capsule.isPublic && (
+                <Pressable
+                  onPress={() => setRecipientsOpen(true)}
+                  style={[styles.addRecipientBtn, { borderColor: `${colors.primary}50` }]}
+                  accessibilityLabel="Add recipient"
+                >
+                  <Ionicons name="person-add-outline" size={18} color={colors.primary} />
+                </Pressable>
+              )}
+            </View>
+          ) : null}
+
+          {/* Recipients modal — opened by icon button */}
+          {!capsule.isPublic && (
+            <RecipientsModal
+              visible={recipientsOpen}
+              capsuleId={capsule._id || capsule.id}
+              recipients={recipients}
+              onClose={() => setRecipientsOpen(false)}
+              onChanged={setRecipients}
+            />
+          )}
+        </ScrollView>
+
+        {/* UNLOCK button — fades in after animation sequence completes */}
+        {unlockable && btnVisible && (
+          <Animated.View style={[styles.unlockBtnWrap, { paddingBottom: 24, paddingHorizontal: 40, opacity: btnOpacity }]}>
+            <PillButton
+              label={opening ? "Unlocking..." : "UNLOCK CAPSULE"}
+              onPress={handleOpenPress}
+              loading={opening}
+              fullWidth
+              size="lg"
+            />
+          </Animated.View>
+        )}
+      </SafeAreaView>
+
+      {/* Passphrase modal */}
       <PassphraseModal
         visible={showPassphrase}
         loading={opening}
@@ -832,7 +995,14 @@ export default function LockedCapsuleScreen() {
         prefilled={storedPassphrase}
         hint={capsule.passphraseHint}
       />
-    </SafeAreaView>
+
+      {/* Social share overlay */}
+      <ShareOverlay
+        visible={showShareOverlay}
+        imageUri={shareImageUri}
+        onClose={() => setShowShareOverlay(false)}
+      />
+    </View>
   );
 }
 

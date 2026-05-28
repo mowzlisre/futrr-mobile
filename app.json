@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "futrr",
-    "slug": "futrr-mobile",
+    "slug": "futrr-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -30,7 +30,8 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS"
-      ]
+      ],
+      "package": "com.mowzlisre.futrr"
     },
     "web": {
       "bundler": "metro",
@@ -49,6 +50,12 @@
           "iosDisplayInForeground": true
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "f839df93-b24b-417e-a1bd-f2ffca27c9d6"
+      }
+    },
+    "owner": "futrr-app"
   }
 }
