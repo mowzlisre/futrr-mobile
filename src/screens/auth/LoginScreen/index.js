@@ -1,5 +1,6 @@
 import { View, Text, Pressable, StyleSheet, Animated, Easing, Keyboard } from "react-native";
 import { useState, useRef, useEffect, useContext, useMemo } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -57,6 +58,7 @@ const makeSealStyles = (colors) =>
 export default function LoginScreen() {
   const { login } = useContext(AuthContext);
   const { colors, isDark } = useTheme();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
   const sealStyles = useMemo(() => makeSealStyles(colors), [colors]);
   const navigation = useNavigation();
@@ -187,7 +189,7 @@ export default function LoginScreen() {
       <Animated.View
         style={[
           styles.bottom,
-          { transform: [{ translateY: bottomSlideDown }], opacity: bottomOpacity },
+          { transform: [{ translateY: bottomSlideDown }], opacity: bottomOpacity, paddingBottom: Math.max(20, insets.bottom) },
         ]}
       >
         <View style={{ paddingHorizontal: 32, paddingBottom: 16 }}>

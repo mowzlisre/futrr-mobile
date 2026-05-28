@@ -6,15 +6,23 @@ import {
   Pressable,
   StyleSheet,
   Alert,
-  Platform,
   useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as MediaLibrary from "expo-media-library";
+import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
+let RNShare = null;
+try { RNShare = require("react-native-share").default; } catch (_) {}
 import { useTheme } from "@/hooks/useTheme";
 
-// ─── Share helpers ────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+async function toBase64DataUri(uri) {
+  const b64 = await FileSystem.readAsStringAsync(uri, { encoding: "base64" });
+  return `data:image/png;base64,${b64}`;
+}
 
 async function saveToGallery(uri) {
   const { status } = await MediaLibrary.requestPermissionsAsync();
@@ -26,48 +34,88 @@ async function saveToGallery(uri) {
   return true;
 }
 
-async function shareViaSheet(uri) {
-  if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(uri, { mimeType: "image/png" });
+function catchShare(err) {
+  const msg = err?.message ?? "";
+  if (
+    msg.includes("User did not share") ||
+    msg.includes("userCancelled") ||
+    msg.includes("cancelled") ||
+    msg === "com.apple.UIKit.activity.Cancel"
+  ) return; // silent cancel
+  if (
+    msg.includes("not installed") ||
+    msg.includes("Package not found") ||
+    msg.includes("No Activity found") ||
+    msg.includes("No app to handle") ||
+    msg.includes("ActivityNotFoundException")
+  ) {
+    Alert.alert("App not installed", "That app isn't installed on this device.");
+    return;
   }
+  Alert.alert("Could not share", "Please try again.");
 }
 
-// ─── Icon row items ───────────────────────────────────────────────────────────
+
+// ─── Action definitions ───────────────────────────────────────────────────────
 
 const ACTIONS = [
-  { id: "instagram", icon: "logo-instagram", label: "Instagram", color: "#d4a974" },
-  { id: "snapchat",  icon: "logo-snapchat",  label: "Snapchat",  color: "#d4a974" },
-  { id: "whatsapp",  icon: "logo-whatsapp",  label: "WhatsApp",  color: "#d4a974" },
-  { id: "save",      icon: "arrow-down-circle-outline", label: "Download", color: "#d4a974" },   // uses theme color
+  { id: "instagram_stories", icon: "logo-instagram", label: "Stories" },
+  { id: "whatsapp",          icon: "logo-whatsapp",  label: "WhatsApp" },
+  { id: "snapchat",          icon: "logo-snapchat",  label: "Snapchat" },
+  { id: "telegram",          icon: "send-outline",   label: "Telegram" },
+  { id: "more",              icon: "share-outline",  label: "More"     },
+  { id: "save",              icon: "arrow-down-circle-outline", label: "Save" },
 ];
 
-async function handleAction(id, uri) {
+async function handleAction(id, imageUri) {
   try {
-    if (id === "save") {
-      const ok = await saveToGallery(uri);
-      if (ok) Alert.alert("Saved", "Image saved to your gallery.");
-    } else {
-      // All social platforms → native share sheet (user picks the app / destination)
-      await shareViaSheet(uri);
+    switch (id) {
+      case "instagram_stories": {
+        if (!RNShare) { await Sharing.shareAsync(imageUri, { mimeType: "image/png" }); break; }
+        const bg = await toBase64DataUri(imageUri);
+        await RNShare.shareSingle({ social: RNShare.Social.INSTAGRAM_STORIES, appId: "YOUR_FACEBOOK_APP_ID", stickerImage: bg });
+        break;
+      }
+      case "whatsapp":
+        if (!RNShare) { await Sharing.shareAsync(imageUri, { mimeType: "image/png" }); break; }
+        await RNShare.shareSingle({ social: RNShare.Social.WHATSAPP, url: imageUri, type: "image/png", message: "" });
+        break;
+      case "snapchat": {
+        if (!RNShare) { await Sharing.shareAsync(imageUri, { mimeType: "image/png" }); break; }
+        const img = await toBase64DataUri(imageUri);
+        await RNShare.shareSingle({ social: RNShare.Social.SNAPCHAT, url: img });
+        break;
+      }
+      case "telegram":
+        if (!RNShare) { await Sharing.shareAsync(imageUri, { mimeType: "image/png" }); break; }
+        await RNShare.shareSingle({ social: RNShare.Social.TELEGRAM, url: imageUri, type: "image/png", message: "" });
+        break;
+      case "more":
+        await Sharing.shareAsync(imageUri, { mimeType: "image/png" });
+        break;
+      case "save": {
+        const ok = await saveToGallery(imageUri);
+        if (ok) Alert.alert("Saved", "Image saved to your gallery.");
+        break;
+      }
     }
-  } catch {
-    Alert.alert("Error", "Could not share. Please try again.");
+  } catch (err) {
+    catchShare(err);
   }
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function ShareOverlay({ visible, imageUri, onClose }) {
-  const { isDark, colors } = useTheme();
+  const { colors } = useTheme();
   const { width: W, height: H } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
 
-  const BG     = isDark ? "#0D0C0A"                : "#FAF8F4";
-  const TEXT   = isDark ? "#F5EFE6"                : "#1A1816";
-  const DIM    = isDark ? "rgba(245,239,230,0.40)"  : "rgba(26,24,22,0.40)";
-  const BORDER = isDark ? "rgba(245,239,230,0.10)"  : "rgba(26,24,22,0.10)";
+  const BG     = colors.background;
+  const TEXT   = colors.foreground;
+  const DIM    = colors.mutedFg;
+  const BORDER = colors.border;
 
-  // 60% of device width, device portrait aspect ratio
-  // Guard against W=0 on first render to prevent NaN → CoreGraphics crash
   const aspectRatio = W > 0 && H > 0 ? H / W : 16 / 9;
   const previewW    = W > 0 ? W * 0.60 : 220;
   const previewH    = previewW * aspectRatio;
@@ -79,13 +127,13 @@ export default function ShareOverlay({ visible, imageUri, onClose }) {
         {/* Close */}
         <Pressable
           onPress={onClose}
-          style={[styles.closeBtn, { borderColor: BORDER }]}
+          style={[styles.closeBtn, { borderColor: BORDER, top: insets.top + 32 }]}
           accessibilityLabel="Close"
         >
           <Ionicons name="close" size={20} color={TEXT} />
         </Pressable>
 
-        {/* Preview — 70 % device aspect ratio */}
+        {/* Preview */}
         <View style={[styles.frame, { width: previewW, height: previewH, borderColor: BORDER }]}>
           {imageUri ? (
             <Image source={{ uri: imageUri }} style={styles.preview} resizeMode="cover" />
@@ -96,18 +144,14 @@ export default function ShareOverlay({ visible, imageUri, onClose }) {
 
         {/* Icon row */}
         <View style={styles.iconRow}>
-          {ACTIONS.map(({ id, icon, label, color }) => (
+          {ACTIONS.map(({ id, icon, label }) => (
             <Pressable
               key={id}
               onPress={() => handleAction(id, imageUri)}
               style={({ pressed }) => [styles.iconBtn, { opacity: pressed ? 0.55 : 1 }]}
               accessibilityLabel={label}
             >
-              <Ionicons
-                name={icon}
-                size={20}
-                color={color ?? TEXT}
-              />
+              <Ionicons name={icon} size={20} color={colors.primary} />
               <Text style={[styles.iconLabel, { color: DIM }]}>{label}</Text>
             </Pressable>
           ))}
@@ -128,7 +172,7 @@ const styles = StyleSheet.create({
   },
   closeBtn: {
     position: "absolute",
-    top: Platform.OS === "ios" ? 58 : 20,
+    top: 12,
     right: 20,
     width: 36, height: 36, borderRadius: 18,
     borderWidth: 1,
@@ -145,16 +189,18 @@ const styles = StyleSheet.create({
   },
   iconRow: {
     flexDirection: "row",
-    gap: 32,
-    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 24,
     justifyContent: "center",
+    paddingHorizontal: 16,
   },
   iconBtn: {
     alignItems: "center",
     gap: 6,
+    minWidth: 52,
   },
   iconLabel: {
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: "500",
     letterSpacing: 0.3,
   },

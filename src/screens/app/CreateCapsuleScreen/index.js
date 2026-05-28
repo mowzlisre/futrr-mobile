@@ -19,8 +19,6 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import * as ImagePicker from "expo-image-picker";
 import {
-  useAudioPlayer,
-  useAudioPlayerStatus,
   useAudioRecorder,
   useAudioRecorderState,
   RecordingPresets,
@@ -46,6 +44,7 @@ import PillButton from "@/components/ui/PillButton";
 import SealingOverlay from "@/components/SealingOverlay";
 
 import RecordingWaveform from "@/components/RecordingWaveform";
+import VoiceNotePlayer from "@/components/VoiceNotePlayer";
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
@@ -269,17 +268,11 @@ function PhotoCapture({ photos, video, photoMode, onPhotosChange, onVideoChange,
 function VoiceRecorder({ recordedUri, onRecorded }) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  // Hooks must be at top level — recorder and player are always created
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recState = useAudioRecorderState(recorder, 500);
-  // Always start with null so the player doesn't try to load before we have a URI
-  const player = useAudioPlayer(null);
-  const playerStatus = useAudioPlayerStatus(player);
 
   const isRecording = recState.isRecording ?? false;
-  // durationMillis is in ms; convert to whole seconds for display
   const duration = Math.floor((recState.durationMillis ?? 0) / 1000);
-  const playing = playerStatus.playing ?? false;
 
   // Auto-stop at 60s
   useEffect(() => {
@@ -288,13 +281,6 @@ function VoiceRecorder({ recordedUri, onRecorded }) {
     }
   }, [duration, isRecording]);
 
-  // When recordedUri becomes available, load it into the player
-  useEffect(() => {
-    if (recordedUri) {
-      player.replace({ uri: recordedUri });
-    }
-  }, [recordedUri]);
-
   const startRecording = async () => {
     try {
       const { granted } = await requestRecordingPermissionsAsync();
@@ -302,7 +288,6 @@ function VoiceRecorder({ recordedUri, onRecorded }) {
         Alert.alert("Permission required", "Microphone access is needed to record audio.");
         return;
       }
-      // expo-audio 1.x uses allowsRecording / playsInSilentMode (not the expo-av iOS-suffix names)
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
       await recorder.prepareToRecordAsync();
       recorder.record();
@@ -326,20 +311,7 @@ function VoiceRecorder({ recordedUri, onRecorded }) {
     }
   };
 
-  const playback = () => {
-    if (!recordedUri) return;
-    if (playing) {
-      player.pause();
-    } else {
-      if (playerStatus.didJustFinish) player.seekTo(0);
-      player.play();
-    }
-  };
-
-  const discard = () => {
-    player.pause();
-    onRecorded(null);
-  };
+  const discard = () => onRecorded(null);
 
   const progress = Math.min(duration / MAX_VOICE_SECS, 1);
 
@@ -375,17 +347,7 @@ function VoiceRecorder({ recordedUri, onRecorded }) {
       ) : (
         /* Playback UI */
         <View style={styles.voicePlayback}>
-          <Pressable onPress={playback} style={styles.playBtn}>
-            <Ionicons
-              name={playing ? "stop" : "play"}
-              size={24}
-              color={colors.primaryFg}
-            />
-          </Pressable>
-          <View style={{ flex: 1, gap: 6 }}>
-            <RecordingWaveform isActive={playing} />
-            <Text style={styles.voicePlaybackSub}>{formatSeconds(duration)} · Tap to preview</Text>
-          </View>
+          <VoiceNotePlayer uri={recordedUri} duration={duration} />
           <Pressable onPress={discard} style={styles.discardBtn}>
             <Ionicons name="trash-outline" size={18} color={colors.mutedFg} />
           </Pressable>
@@ -1700,10 +1662,8 @@ const makeStyles = (colors) => StyleSheet.create({
     color: colors.mutedFg,
   },
   voicePlayback: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
     width: "100%",
+    gap: 8,
   },
   playBtn: {
     width: 48,

@@ -1,4 +1,4 @@
-import { View, Text, Pressable, StyleSheet, Animated } from "react-native";
+import { View, Text, Pressable, StyleSheet, Animated, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { useRef, useEffect, useMemo } from "react";
@@ -117,18 +117,33 @@ export function BottomNavigation({ activeTab, onTabChange }) {
       pointerEvents={tourActive ? "none" : "auto"}
     >
       {/* Pill with 4 icons */}
-      <BlurView intensity={isDark ? 60 : 80} tint={isDark ? "dark" : "light"} style={styles.navBar}>
-        {TABS_CONFIG.map((tab) => (
-          <TabItem
-            key={tab.id}
-            tab={tab}
-            isActive={activeTab === tab.id}
-            onPress={() => { hapticLight(); onTabChange(tab); }}
-            colors={colors}
-            styles={styles}
-          />
-        ))}
-      </BlurView>
+      {Platform.OS === "ios" ? (
+        <BlurView intensity={isDark ? 60 : 80} tint={isDark ? "dark" : "light"} style={styles.navBar}>
+          {TABS_CONFIG.map((tab) => (
+            <TabItem
+              key={tab.id}
+              tab={tab}
+              isActive={activeTab === tab.id}
+              onPress={() => { hapticLight(); onTabChange(tab); }}
+              colors={colors}
+              styles={styles}
+            />
+          ))}
+        </BlurView>
+      ) : (
+        <View style={[styles.navBar, { backgroundColor: isDark ? "rgba(26,24,38,0.96)" : "rgba(255,255,255,0.97)" }]}>
+          {TABS_CONFIG.map((tab) => (
+            <TabItem
+              key={tab.id}
+              tab={tab}
+              isActive={activeTab === tab.id}
+              onPress={() => { hapticLight(); onTabChange(tab); }}
+              colors={colors}
+              styles={styles}
+            />
+          ))}
+        </View>
+      )}
 
       {/* Separate rounded FAB — hidden during tour until the fab step */}
       <Animated.View

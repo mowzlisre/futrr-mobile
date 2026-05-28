@@ -1,13 +1,15 @@
 import { View, Text, StyleSheet } from "react-native";
 import { useMemo } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/hooks/useTheme";
 
 export function TopNavigation({ activeTab, activeTitle, rightElement }) {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.titleBlock}>
         <Text style={styles.tabTitle}>{activeTab}</Text>
         <Text style={styles.tabName}>{activeTitle}</Text>
@@ -19,12 +21,13 @@ export function TopNavigation({ activeTab, activeTitle, rightElement }) {
 
 const makeStyles = (colors) => StyleSheet.create({
   container: {
-    height: 90,
+    minHeight: 90,
     paddingHorizontal: 24,
+    paddingBottom: 12,
     backgroundColor: colors.background,
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
+    alignItems: "flex-end",
   },
   titleBlock: {
     gap: 2,

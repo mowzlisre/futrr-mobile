@@ -50,9 +50,9 @@ export const toggleFavorite = async (id) => {
   return res.data; // { favorited: true | false }
 };
 
-export const getMapCapsules = async ({ lat_min, lat_max, lng_min, lng_max }) => {
+export const getMapCapsules = async ({ lat_min, lat_max, lng_min, lng_max, limit = 50 }) => {
   const res = await api.get("/capsules/map/", {
-    params: { lat_min, lat_max, lng_min, lng_max },
+    params: { lat_min, lat_max, lng_min, lng_max, limit },
   });
   return res.data;
 };

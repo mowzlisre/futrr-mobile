@@ -1,6 +1,5 @@
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { TABS, ROUTES } from "@/constants";
@@ -143,10 +142,7 @@ export default function MainApp() {
   };
 
   return (
-    <SafeAreaView
-      style={{ flex: 1, backgroundColor: colors.background }}
-      edges={["top"]}
-    >
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
       <View style={{ flex: 1 }}>
         <View style={isHeaderTarget ? { zIndex: 12 } : undefined}>
           <TopNavigation
@@ -162,7 +158,7 @@ export default function MainApp() {
         <FabTooltip />
         <TourOverlay onSwitchTab={handleTourSwitchTab} />
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 

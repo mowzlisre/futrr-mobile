@@ -53,20 +53,17 @@ function AppInner() {
 }
 
 export default function App() {
-  const [fontsLoaded, fontError] = useFonts({
+  const [fontsLoaded] = useFonts({
     Moul: require("./assets/fonts/Moul.ttf"),
     MrsSans: require("./assets/fonts/MrsSans.ttf"),
+    ionicons: require("./assets/fonts/ionicons.ttf"),
   });
 
   useEffect(() => {
-    if (fontsLoaded || fontError) {
-      SplashScreen.hideAsync();
-    }
-  }, [fontsLoaded, fontError]);
+    if (fontsLoaded) SplashScreen.hideAsync();
+  }, [fontsLoaded]);
 
-  if (!fontsLoaded && !fontError) {
-    return null;
-  }
+  if (!fontsLoaded) return null;
 
   return (
     <ThemeProvider>

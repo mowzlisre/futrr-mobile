@@ -38,7 +38,16 @@
       "favicon": "./assets/favicon.ico"
     },
     "plugins": [
-      "expo-font",
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./assets/fonts/Moul.ttf",
+            "./assets/fonts/MrsSans.ttf",
+            "./assets/fonts/ionicons.ttf"
+          ]
+        }
+      ],
       "expo-secure-store",
       "expo-location",
       "@react-native-community/datetimepicker",

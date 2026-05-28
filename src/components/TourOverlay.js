@@ -1,4 +1,4 @@
-import { View, Text, Pressable, StyleSheet, Dimensions, Animated } from "react-native";
+import { View, Text, Pressable, StyleSheet, Dimensions, Animated, Platform } from "react-native";
 import { useRef, useEffect, useMemo } from "react";
 import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
@@ -190,11 +190,13 @@ export function TourOverlay({ onSwitchTab }) {
         style={[StyleSheet.absoluteFill, { zIndex: 10, opacity: fadeAnim }]}
         pointerEvents="none"
       >
-        <BlurView
-          intensity={50}
-          tint={isDark ? "dark" : "light"}
-          style={StyleSheet.absoluteFill}
-        />
+        {Platform.OS === "ios" && (
+          <BlurView
+            intensity={50}
+            tint={isDark ? "dark" : "light"}
+            style={StyleSheet.absoluteFill}
+          />
+        )}
         <View
           style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.45)" }]}
         />

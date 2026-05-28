@@ -1,22 +1,26 @@
 import {
   View,
   Text,
+  Image,
   Pressable,
   StyleSheet,
   ActivityIndicator,
   Modal,
   FlatList,
+  Platform,
 } from "react-native";
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import MapView, { Marker } from "react-native-maps";
+import OsmMapView from "@/components/OsmMapView";
 import * as Location from "expo-location";
 import { useTheme } from "@/hooks/useTheme";
 import { ROUTES } from "@/constants/routes";
-import { getMapCapsules } from "@/services/capsules";
+import { getMapCapsules, getCapsules } from "@/services/capsules";
 import { normalizeCapsule } from "@/utils/normalize";
+import { useAuth } from "@/hooks/useAuth";
 
 // Zoom thresholds (latitudeDelta)
 const ZOOM_CITY   = 15;   // > 15 → city-level clusters
@@ -44,6 +48,7 @@ function clusterCapsules(capsules, latitudeDelta) {
         label: c.location_name || c.title || "Capsule",
         locationName: c.location_name || null,
         isCluster: false,
+        pinType: c.pinType ?? "public",
         capsules: [c],
       }));
   }
@@ -62,10 +67,12 @@ function clusterCapsules(capsules, latitudeDelta) {
         locationNames: {},
         isCluster: true,
         capsules: [],
+        ownCount: 0,
       };
     }
     buckets[key].count += 1;
     buckets[key].capsules.push(c);
+    if (c.pinType === "own") buckets[key].ownCount += 1;
     const loc = c.location_name;
     if (loc) {
       buckets[key].locationNames[loc] = (buckets[key].locationNames[loc] || 0) + 1;
@@ -83,94 +90,58 @@ function clusterCapsules(capsules, latitudeDelta) {
       names.length > 0
         ? names.sort((a, z) => z[1] - a[1])[0][0]
         : null;
-    return { ...b, label: topName };
+    return { ...b, label: topName, pinType: b.ownCount > b.count / 2 ? "own" : "public" };
   });
 }
 
-// ─── Marker components ────────────────────────────────────────────────────────
+// ─── Marker components — mirrors Android OsmMapView pin styles exactly ────────
 
-const makePinStyles = (colors) =>
-  StyleSheet.create({
-    wrapper: {
-      alignItems: "center",
-    },
-    badge: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 3,
-      backgroundColor: colors.primary,
-      paddingHorizontal: 8,
-      paddingVertical: 5,
-      borderRadius: 10,
-      shadowColor: colors.primary,
-      shadowOpacity: 0.6,
-      shadowRadius: 8,
-      shadowOffset: { width: 0, height: 2 },
-      elevation: 4,
-    },
-    singleBadge: {
-      paddingHorizontal: 7,
-    },
-    countBubble: {
-      backgroundColor: "rgba(10,10,15,0.88)",
-      borderRadius: 8,
-      paddingHorizontal: 6,
-      paddingVertical: 2,
-      marginTop: 2,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    countText: {
-      fontSize: 9,
-      lineHeight: 13,
-      color: colors.foreground,
-      fontWeight: "700",
-    },
-    tip: {
-      width: 0,
-      height: 0,
-      borderLeftWidth: 5,
-      borderRightWidth: 5,
-      borderTopWidth: 7,
-      borderLeftColor: "transparent",
-      borderRightColor: "transparent",
-      borderTopColor: colors.primary,
-      marginTop: -1,
-    },
-  });
-
-function ClusterPin({ count }) {
+function SinglePin({ pinType, avatarUrl }) {
   const { colors } = useTheme();
-  const pinStyles = useMemo(() => makePinStyles(colors), [colors]);
+
+  if (pinType === "own" && avatarUrl) {
+    return (
+      <View style={[pinStyles.circle, { width: 28, height: 28, borderRadius: 14, overflow: "hidden", borderColor: "rgba(255,255,255,0.9)" }]}>
+        <Image source={{ uri: avatarUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+      </View>
+    );
+  }
+  if (pinType === "public") {
+    return <View style={[pinStyles.circle, { width: 14, height: 14, borderRadius: 7, backgroundColor: "transparent", borderColor: colors.primary }]} />;
+  }
+  // own, no avatar
+  return <View style={[pinStyles.circle, { width: 12, height: 12, borderRadius: 6, backgroundColor: colors.primary, borderColor: "rgba(255,255,255,0.8)" }]} />;
+}
+
+function ClusterPin({ count, pinType, avatarUrl }) {
+  const { colors } = useTheme();
+  const size = Math.max(32, Math.min(48, 28 + count));
   const display = count >= 1000 ? `${(count / 1000).toFixed(1)}k` : String(count);
+
+  if (pinType === "own" && avatarUrl) {
+    return (
+      <View style={[pinStyles.circle, { width: size, height: size, borderRadius: size / 2, overflow: "hidden", borderColor: "rgba(255,255,255,0.55)" }]}>
+        <Image source={{ uri: avatarUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+      </View>
+    );
+  }
   return (
-    <View style={pinStyles.wrapper}>
-      <View style={pinStyles.badge}>
-        <Ionicons name="lock-closed" size={9} color={colors.primaryFg} />
-      </View>
-      <View style={pinStyles.tip} />
-      <View style={pinStyles.countBubble}>
-        <Text style={pinStyles.countText}>{display}</Text>
-      </View>
+    <View style={[pinStyles.circle, { width: size, height: size, borderRadius: size / 2, backgroundColor: colors.primary, borderColor: "rgba(255,255,255,0.55)", alignItems: "center", justifyContent: "center" }]}>
+      {count >= 2 && <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700" }}>{display}</Text>}
     </View>
   );
 }
 
-function SinglePin() {
-  const { colors } = useTheme();
-  const pinStyles = useMemo(() => makePinStyles(colors), [colors]);
-  return (
-    <View style={pinStyles.wrapper}>
-      <View style={[pinStyles.badge, pinStyles.singleBadge]}>
-        <Ionicons name="lock-closed" size={11} color={colors.primaryFg} />
-      </View>
-      <View style={pinStyles.tip} />
-      <View style={pinStyles.countBubble}>
-        <Text style={pinStyles.countText}>1</Text>
-      </View>
-    </View>
-  );
-}
+const pinStyles = StyleSheet.create({
+  circle: {
+    borderWidth: 2.5,
+    shadowColor: "#000",
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+});
 
 // ─── ClusterModal ─────────────────────────────────────────────────────────────
 
@@ -408,6 +379,44 @@ function ClusterModal({ cluster, onClose, onCapsulePress }) {
 const ONE_MILE_DEG = 1 / 69;
 const ONE_MILE_METERS = 1609.34;
 
+// Cache config
+const PUBLIC_CAPSULE_LIMIT = 50;
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_SNAP = 0.1; // ~11 km grid — panning within this keeps the cached result
+
+function snapBounds(region) {
+  const latD = region.latitudeDelta / 2;
+  const lngD = region.longitudeDelta / 2;
+  return {
+    lat_min: Math.floor((region.latitude - latD) / CACHE_SNAP) * CACHE_SNAP,
+    lat_max: Math.ceil ((region.latitude + latD) / CACHE_SNAP) * CACHE_SNAP,
+    lng_min: Math.floor((region.longitude - lngD) / CACHE_SNAP) * CACHE_SNAP,
+    lng_max: Math.ceil ((region.longitude + lngD) / CACHE_SNAP) * CACHE_SNAP,
+  };
+}
+
+function boundsKey(b) {
+  return `${b.lat_min.toFixed(1)},${b.lat_max.toFixed(1)},${b.lng_min.toFixed(1)},${b.lng_max.toFixed(1)}`;
+}
+
+// Calculate a region that fits all capsules with padding
+function boundsForCapsules(capsules) {
+  const valid = capsules.filter(c => c.latitude != null && c.longitude != null);
+  if (valid.length === 0) return null;
+  const lats = valid.map(c => parseFloat(c.latitude));
+  const lngs = valid.map(c => parseFloat(c.longitude));
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+  const latPad = Math.max((maxLat - minLat) * 0.4, ONE_MILE_DEG * 2);
+  const lngPad = Math.max((maxLng - minLng) * 0.4, ONE_MILE_DEG * 2);
+  return {
+    latitude: (minLat + maxLat) / 2,
+    longitude: (minLng + maxLng) / 2,
+    latitudeDelta: (maxLat - minLat) + latPad,
+    longitudeDelta: (maxLng - minLng) + lngPad,
+  };
+}
+
 function haversineDistance(lat1, lon1, lat2, lon2) {
   const R = 6371000; // Earth radius in meters
   const toRad = (v) => (v * Math.PI) / 180;
@@ -487,7 +496,7 @@ const makeStyles = (colors) =>
       flexDirection: "row",
       alignItems: "center",
       gap: 6,
-      backgroundColor: "rgba(10,10,15,0.85)",
+      backgroundColor: colors.card,
       paddingHorizontal: 12,
       paddingVertical: 7,
       borderRadius: 20,
@@ -516,7 +525,7 @@ const makeStyles = (colors) =>
       width: 44,
       height: 44,
       borderRadius: 22,
-      backgroundColor: "rgba(10,10,15,0.88)",
+      backgroundColor: colors.card,
       borderWidth: 1,
       borderColor: colors.border,
       alignItems: "center",
@@ -535,16 +544,46 @@ export default function AtlasScreen() {
   const { colors, isDark, mapStyle } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const navigation = useNavigation();
-  const mapRef = useRef(null);
+  const mapRef   = useRef(null);
+  const cacheRef = useRef({});   // { key: { data: [], ts: number } }
+  const { user } = useAuth();
 
   const [locationGranted, setLocationGranted] = useState(false);
   const [userCoords, setUserCoords] = useState(null);
   const [initialRegion, setInitialRegion] = useState(null);
   const [locating, setLocating] = useState(true);
 
-  const [rawCapsules, setRawCapsules] = useState([]);
-  const [currentRegion, setCurrentRegion] = useState(null);
+  // Public map capsules (region-bounded) + user's own geotagged capsules
+  const [publicCapsules, setPublicCapsules] = useState([]);
+  const [ownCapsules, setOwnCapsules]       = useState([]);
+  const [currentRegion, setCurrentRegion]   = useState(null);
   const [selectedCluster, setSelectedCluster] = useState(null);
+  const [showOnlyOthers, setShowOnlyOthers] = useState(false);
+
+  // ── Fallback: centre on the first geotagged own capsule, or world view ──────
+  const applyFallbackRegion = useCallback(async () => {
+    try {
+      const list = await getCapsules();
+      const first = list.find((c) => c.latitude != null && c.longitude != null);
+      if (first) {
+        const region = {
+          latitude: parseFloat(first.latitude),
+          longitude: parseFloat(first.longitude),
+          latitudeDelta: ONE_MILE_DEG * 10,
+          longitudeDelta: ONE_MILE_DEG * 10,
+        };
+        setInitialRegion(region);
+        setCurrentRegion(region);
+        loadCapsules(region);
+        return;
+      }
+    } catch {}
+    // Last resort: show the whole world
+    const region = { latitude: 20, longitude: 0, latitudeDelta: 60, longitudeDelta: 60 };
+    setInitialRegion(region);
+    setCurrentRegion(region);
+    loadCapsules(region);
+  }, [loadCapsules]);
 
   // ── Request location + set initial region ──────────────────────────────────
   useEffect(() => {
@@ -560,7 +599,6 @@ export default function AtlasScreen() {
           });
           const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
           setUserCoords(coords);
-          // Start zoomed to ~1 mile view
           const region = {
             ...coords,
             latitudeDelta: ONE_MILE_DEG * 3,
@@ -570,44 +608,42 @@ export default function AtlasScreen() {
           setCurrentRegion(region);
           loadCapsules(region);
         } else {
-          // Fallback to a broad view if location denied
-          const region = {
-            latitude: 37.7749,
-            longitude: -122.4194,
-            latitudeDelta: 20,
-            longitudeDelta: 20,
-          };
-          setInitialRegion(region);
-          setCurrentRegion(region);
-          loadCapsules(region);
+          await applyFallbackRegion();
         }
       } catch {
-        const region = {
-          latitude: 37.7749,
-          longitude: -122.4194,
-          latitudeDelta: 20,
-          longitudeDelta: 20,
-        };
-        setInitialRegion(region);
-        setCurrentRegion(region);
-        loadCapsules(region);
+        await applyFallbackRegion();
       } finally {
         setLocating(false);
       }
     })();
   }, []);
 
-  // ── Load capsules for visible region ──────────────────────────────────────
+  // ── Load user's own geotagged capsules once on mount ──────────────────────
+  useEffect(() => {
+    getCapsules().then((list) => {
+      const geotagged = list.filter(
+        (c) => c.latitude != null && c.longitude != null
+      );
+      setOwnCapsules(geotagged);
+    }).catch(() => {});
+  }, []);
+
+  // ── Load public map capsules for visible region (cached, max 50) ────────────
   const loadCapsules = useCallback(async (region) => {
     try {
-      const bounds = {
-        lat_min: region.latitude - region.latitudeDelta / 2,
-        lat_max: region.latitude + region.latitudeDelta / 2,
-        lng_min: region.longitude - region.longitudeDelta / 2,
-        lng_max: region.longitude + region.longitudeDelta / 2,
-      };
-      const data = await getMapCapsules(bounds);
-      setRawCapsules(data);
+      const bounds = snapBounds(region);
+      const key    = boundsKey(bounds);
+
+      // Return cached data if fresh
+      const hit = cacheRef.current[key];
+      if (hit && Date.now() - hit.ts < CACHE_TTL_MS) {
+        setPublicCapsules(hit.data);
+        return;
+      }
+
+      const data = await getMapCapsules({ ...bounds, limit: PUBLIC_CAPSULE_LIMIT });
+      cacheRef.current[key] = { data, ts: Date.now() };
+      setPublicCapsules(data);
     } catch {
       // keep existing data on error
     }
@@ -621,25 +657,53 @@ export default function AtlasScreen() {
     [loadCapsules]
   );
 
-  // ── Filter capsules to within 1 mile of user, then compute pins ────────────
-  const nearbyCapsules = useMemo(() => {
-    if (!userCoords) return rawCapsules;
-    return rawCapsules.filter((c) => {
-      if (c.latitude == null || c.longitude == null) return false;
-      const dist = haversineDistance(
-        userCoords.latitude, userCoords.longitude,
-        parseFloat(c.latitude), parseFloat(c.longitude)
-      );
-      return dist <= ONE_MILE_METERS;
+  // ── Merge own + public, tag each with pinType, deduplicate by id ──────────
+  const allCapsules = useMemo(() => {
+    const seen = new Set();
+    const merged = [];
+    ownCapsules.forEach((c) => {
+      if (seen.has(c.id)) return;
+      seen.add(c.id);
+      merged.push({ ...c, pinType: "own" });
     });
-  }, [rawCapsules, userCoords]);
+    publicCapsules.forEach((c) => {
+      if (seen.has(c.id)) return;
+      seen.add(c.id);
+      merged.push({ ...c, pinType: "public" });
+    });
+    return merged;
+  }, [ownCapsules, publicCapsules]);
+
+  // Others' public capsules (excludes own)
+  const ownIds = useMemo(() => new Set(ownCapsules.map(c => c.id)), [ownCapsules]);
+  const othersCount = useMemo(
+    () => publicCapsules.filter(c => !ownIds.has(c.id)).length,
+    [publicCapsules, ownIds],
+  );
+
+  // Active capsule set — filtered when "show only others" is toggled
+  const activeCapsules = useMemo(
+    () => showOnlyOthers ? allCapsules.filter(c => c.pinType === "public") : allCapsules,
+    [allCapsules, showOnlyOthers],
+  );
 
   const pins = useMemo(() => {
     if (!currentRegion) return [];
-    return clusterCapsules(nearbyCapsules, currentRegion.latitudeDelta);
-  }, [nearbyCapsules, currentRegion]);
+    return clusterCapsules(activeCapsules, currentRegion.latitudeDelta);
+  }, [activeCapsules, currentRegion]);
 
-  const totalCapsules = nearbyCapsules.length;
+  // ── Fit map to all own capsule locations ──────────────────────────────────
+  const fitToOwnCapsules = useCallback(() => {
+    const bounds = boundsForCapsules(ownCapsules);
+    if (!bounds) {
+      Alert.alert("No locations", "You have no capsules with location data yet.");
+      return;
+    }
+    mapRef.current?.animateToRegion(bounds);
+  }, [ownCapsules]);
+
+
+  const totalCapsules = allCapsules.length;
   const isZoomedIn = currentRegion && currentRegion.latitudeDelta <= ZOOM_STREET;
 
   // ── Re-center on user ──────────────────────────────────────────────────────
@@ -708,54 +772,76 @@ export default function AtlasScreen() {
 
       {/* Map */}
       <View style={styles.mapContainer}>
-        <MapView
-          ref={mapRef}
-          style={styles.map}
-          initialRegion={initialRegion}
-          showsUserLocation={locationGranted}
-          showsCompass={false}
-          showsScale={false}
-          customMapStyle={mapStyle}
-          userInterfaceStyle={isDark ? "dark" : "light"}
-          onRegionChangeComplete={handleRegionChange}
-        >
-          {pins.map((pin) => (
-            <Marker
-              key={pin.id}
-              coordinate={pin.coordinate}
-              onPress={() => setSelectedCluster(pin)}
-              tracksViewChanges={false}
-            >
-              {pin.isCluster ? (
-                <ClusterPin count={pin.count} />
-              ) : (
-                <SinglePin />
-              )}
-            </Marker>
-          ))}
-        </MapView>
+        {Platform.OS === "android" ? (
+          <OsmMapView
+            ref={mapRef}
+            style={styles.map}
+            initialRegion={initialRegion}
+            onRegionChangeComplete={handleRegionChange}
+            markers={pins.map((pin) => ({ ...pin, pinType: pin.pinType, avatarUrl: pin.pinType === "own" ? user?.avatar : null, onPress: () => setSelectedCluster(pin) }))}
+            showsUserLocation={locationGranted}
+            userLocation={userCoords ? { latitude: userCoords.latitude, longitude: userCoords.longitude } : null}
+            isDark={isDark}
+            primaryColor={colors.primary}
+          />
+        ) : (
+          <MapView
+            ref={mapRef}
+            style={styles.map}
+            initialRegion={initialRegion}
+            showsUserLocation={locationGranted}
+            showsCompass={false}
+            showsScale={false}
+            customMapStyle={mapStyle}
+            userInterfaceStyle={isDark ? "dark" : "light"}
+            onRegionChangeComplete={handleRegionChange}
+          >
+            {pins.map((pin) => (
+              <Marker
+                key={pin.id}
+                coordinate={pin.coordinate}
+                onPress={() => setSelectedCluster(pin)}
+                tracksViewChanges={false}
+              >
+                {pin.isCluster
+                ? <ClusterPin count={pin.count} pinType={pin.pinType} avatarUrl={pin.pinType === "own" ? user?.avatar : null} />
+                : <SinglePin pinType={pin.pinType} avatarUrl={pin.pinType === "own" ? user?.avatar : null} />
+              }
+              </Marker>
+            ))}
+          </MapView>
+        )}
 
         {/* Stats overlay */}
         <View style={styles.statsOverlay}>
-          <View style={styles.statPill}>
+          {/* 1 — Fit to own capsules */}
+          <Pressable
+            style={({ pressed }) => [styles.statPill, pressed && { opacity: 0.7 }]}
+            onPress={fitToOwnCapsules}
+          >
             <Ionicons name="earth-outline" size={14} color={colors.primary} />
-            <Text style={styles.statPillText}>{pins.length} locations</Text>
-          </View>
-          <View style={styles.statPill}>
-            <Ionicons name="lock-closed-outline" size={14} color={colors.primary} />
-            <Text style={styles.statPillText}>
-              {totalCapsules.toLocaleString()} nearby
+            <Text style={styles.statPillText}>{ownCapsules.length} locations</Text>
+          </Pressable>
+
+          {/* 2 — Toggle others' public capsules */}
+          <Pressable
+            style={({ pressed }) => [
+              styles.statPill,
+              showOnlyOthers && { borderColor: colors.primary },
+              pressed && { opacity: 0.7 },
+            ]}
+            onPress={() => setShowOnlyOthers(v => !v)}
+          >
+            <Ionicons
+              name="people-outline"
+              size={14}
+              color={showOnlyOthers ? colors.primary : colors.mutedFg}
+            />
+            <Text style={[styles.statPillText, showOnlyOthers && { color: colors.primary }]}>
+              {othersCount} nearby
             </Text>
-          </View>
-          <View style={styles.statPill}>
-            <Ionicons name="navigate-circle-outline" size={14} color={colors.primary} />
-            <Text style={styles.statPillText}>1 mi radius</Text>
-          </View>
-          {isZoomedIn && (
-            <View style={[styles.statPill, styles.zoomPill]}>
-              <Text style={styles.zoomPillText}>Individual pins</Text>
-            </View>
-          )}
+          </Pressable>
+
         </View>
 
         {/* Re-center button */}

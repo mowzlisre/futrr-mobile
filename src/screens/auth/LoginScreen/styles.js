@@ -122,7 +122,6 @@ export const makeStyles = (colors, isDark) =>
       left: 0,
       right: 0,
       paddingHorizontal: 24,
-      paddingBottom: 20
     },
 
     alreadyHave: {

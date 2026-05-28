@@ -14,17 +14,19 @@ import {
   Animated,
   Easing,
   useWindowDimensions,
+  Platform,
 } from "react-native";
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback, memo } from "react";
 import * as MediaLibrary from "expo-media-library";
 import * as FileSystem from "expo-file-system";
 import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import MapView, { Marker } from "react-native-maps";
-import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
+import OsmMapView from "@/components/OsmMapView";
+import { setAudioModeAsync } from "expo-audio";
 import { VideoView, useVideoPlayer } from "expo-video";
-import Slider from "@react-native-community/slider";
+import VoiceNotePlayer from "@/components/VoiceNotePlayer";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { fonts } from "@/constants";
@@ -40,7 +42,6 @@ import { captureRef } from "react-native-view-shot";
 import * as Sharing from "expo-sharing";
 import * as VideoThumbnails from "expo-video-thumbnails";
 import ShareOverlay from "@/components/ShareOverlay";
-import RecordingWaveform from "@/components/RecordingWaveform";
 
 // ─── Media download helper ────────────────────────────────────────────────────
 
@@ -59,40 +60,6 @@ async function downloadMedia(url) {
   } catch {
     Alert.alert("Error", "Could not save media.");
   }
-}
-
-// ─── Seek bar (native Slider) ─────────────────────────────────────────────────
-
-const makeSeekStyles = (colors) => StyleSheet.create({
-  slider: {
-    width: "100%",
-    height: 24,
-    marginVertical: 2,
-  },
-});
-
-function SeekBar({ positionMs, durationMs, onSeek }) {
-  const { colors } = useTheme();
-  const seekStyles = useMemo(() => makeSeekStyles(colors), [colors]);
-  const [dragging, setDragging] = useState(false);
-  const [dragValue, setDragValue] = useState(0);
-  const normalized = durationMs > 0 ? Math.min(1, positionMs / durationMs) : 0;
-
-  return (
-    <Slider
-      style={seekStyles.slider}
-      value={dragging ? dragValue : normalized}
-      minimumValue={0}
-      maximumValue={1}
-      onSlidingStart={(v) => { setDragging(true); setDragValue(v); }}
-      onValueChange={(v) => setDragValue(v)}
-      onSlidingComplete={(v) => { setDragging(false); onSeek(v * durationMs); }}
-      minimumTrackTintColor={colors.primary}
-      maximumTrackTintColor={`${colors.primary}28`}
-      thumbTintColor={colors.primary}
-      tapToSeek
-    />
-  );
 }
 
 function formatMs(ms) {
@@ -150,7 +117,16 @@ const makeContentStyles = (colors) => StyleSheet.create({
     padding: 6,
   },
   voiceDownloadBtn: {
-    padding: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 6,
+    alignSelf: "flex-end",
+  },
+  voiceTitle: {
+    fontSize: 12,
+    color: colors.mutedFg,
   },
 
   // Caption (below media)
@@ -167,58 +143,6 @@ const makeContentStyles = (colors) => StyleSheet.create({
     fontStyle: "italic",
     fontFamily: fonts.serif,
     padding: 16,
-  },
-
-  // Voice
-  voiceHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    padding: 16,
-    paddingBottom: 8,
-  },
-  voiceIconWrap: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: `${colors.primary}18`,
-    borderWidth: 1.5,
-    borderColor: `${colors.primary}40`,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  voiceTitle: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: colors.foreground,
-  },
-  voiceDuration: {
-    fontSize: 12,
-    lineHeight: 17,
-    color: colors.mutedFg,
-    marginTop: 2,
-  },
-  voiceControls: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    padding: 16,
-    paddingTop: 10,
-  },
-  voicePlayBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  voiceTime: {
-    fontSize: 12,
-    lineHeight: 17,
-    color: colors.mutedFg,
-    minWidth: 36,
-    textAlign: "right",
   },
 
   // Video
@@ -356,57 +280,9 @@ function PhotoContent({ url, caption }) {
 function VoiceContent({ url, duration, caption }) {
   const { colors } = useTheme();
   const contentStyles = useMemo(() => makeContentStyles(colors), [colors]);
-  const player = useAudioPlayer({ uri: url });
-  const status = useAudioPlayerStatus(player);
-
-  const positionMs = (status.currentTime ?? 0) * 1000;
-  const durationMs = status.duration ? status.duration * 1000 : (duration ? duration * 1000 : 0);
-  const playing = status.playing ?? false;
-  const progress = durationMs > 0 ? positionMs / durationMs : 0;
-
-  const toggle = () => {
-    if (playing) {
-      player.pause();
-    } else {
-      if (status.didJustFinish) player.seekTo(0);
-      player.play();
-    }
-  };
-
-  const seek = (ms) => player.seekTo(ms / 1000);
-
   return (
     <View style={contentStyles.mediaCard}>
-      {/* Header */}
-      <View style={contentStyles.voiceHeader}>
-        <View style={contentStyles.voiceIconWrap}>
-          <Ionicons name="mic-outline" size={20} color={colors.primary} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={contentStyles.voiceTitle}>Voice Note</Text>
-          <Text style={contentStyles.voiceDuration}>{formatMs(durationMs)}</Text>
-        </View>
-        <Pressable onPress={() => downloadMedia(url)} hitSlop={8} style={contentStyles.voiceDownloadBtn}>
-          <Ionicons name="download-outline" size={18} color={colors.mutedFg} />
-        </Pressable>
-      </View>
-
-      {/* Animated waveform */}
-        <View style={{ paddingHorizontal: 16, paddingVertical: 8, justifyContent: "center", alignItems: "center" }}>
-          <RecordingWaveform isActive={playing} />
-        </View>
-
-      {/* Controls: play/pause + seek + time */}
-      <View style={contentStyles.voiceControls}>
-        <Pressable onPress={toggle} style={contentStyles.voicePlayBtn}>
-          <Ionicons name={playing ? "pause" : "play"} size={18} color={colors.primaryFg} />
-        </Pressable>
-        <View style={{ flex: 1 }}>
-          <SeekBar positionMs={positionMs} durationMs={durationMs} onSeek={seek} />
-        </View>
-        <Text style={contentStyles.voiceTime}>{formatMs(positionMs)}</Text>
-      </View>
-
+      <VoiceNotePlayer uri={url} duration={duration} />
       <Caption text={caption} />
     </View>
   );
@@ -588,26 +464,15 @@ function PhotoCarousel({ items, activeIndex, onIndexChange, caption }) {
 
 // ─── Audio block for share canvas — loads the audio to read its actual duration ─
 
-function CanvasAudioBlock({ voiceItem, primary, cs }) {
-  const player = useAudioPlayer({ uri: voiceItem.url });
-  const status = useAudioPlayerStatus(player);
-  const durationMs = status?.duration
-    ? status.duration * 1000
-    : (voiceItem.duration ?? 0) * 1000;
-
+function CanvasAudioBlock({ voiceItem }) {
   return (
-    <View style={cs.audioBlock}>
-      <View style={cs.audioBlockHeader}>
-        <View style={cs.audioMicWrap}>
-          <Ionicons name="mic" size={14} color={primary} />
-        </View>
-        <Text style={cs.audioLabel}>Voice Note</Text>
-        <Text style={cs.audioDuration}>{formatMs(durationMs)}</Text>
-      </View>
-      <View style={{ alignItems: "center", justifyContent: "center" }}>
-        <RecordingWaveform isActive={true} color={primary} />
-      </View>
-    </View>
+    <VoiceNotePlayer
+      duration={voiceItem.duration}
+      waveformData={voiceItem.waveformData}
+      noPadding
+      allColored
+      showPlayButton={true}
+    />
   );
 }
 
@@ -641,155 +506,135 @@ function CanvasVideoThumb({ url, cs }) {
 
 // ─── Capsule share canvas — 9:16, card centred at 80% width ──────────────────
 
-const CANVAS_BG = "#0D0C0A";
-const CANVAS_TEXT = "#F5EFE6";
-const CANVAS_DIM = "rgba(245,239,230,0.45)";
+const makeCanvasStyles = (colors, isDark, cardW, mediaH) => {
+  const BG   = colors.background;
+  const TEXT = colors.foreground;
+  const DIM  = colors.mutedFg;
+  const subtle = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.04)";
+  return StyleSheet.create({
+    wrapper: {
+      position: "absolute",
+      left: -9999,
+      top: 0,
+      overflow: "hidden",
+      backgroundColor: BG,
+    },
+    bgTint: {
+      ...StyleSheet.absoluteFillObject,
+      opacity: 0.06,
+      backgroundColor: colors.primary,
+    },
+    center: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingVertical: 40,
+      gap: 14,
+    },
+    ownerRow: {
+      width: cardW,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
+    avatar: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: subtle,
+      borderWidth: 1.5,
+      borderColor: `${colors.primary}50`,
+      alignItems: "center",
+      justifyContent: "center",
+      overflow: "hidden",
+    },
+    avatarImg: { width: "100%", height: "100%" },
+    avatarInitial: { color: TEXT, fontSize: 15, fontWeight: "700" },
+    ownerName: { color: TEXT, fontSize: 13, fontWeight: "600" },
+    ownerVerb: { color: DIM, fontSize: 10, marginTop: 1 },
+    card: {
+      width: cardW,
+      backgroundColor: colors.card,
+      borderRadius: 18,
+      overflow: "hidden",
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    mediaArea: {
+      width: cardW,
+      height: mediaH,
+      backgroundColor: BG,
+      overflow: "hidden",
+    },
+    audioArea: {
+      width: cardW,
+      height: 100,
+      backgroundColor: BG,
+      overflow: "hidden",
+      justifyContent: "center",
+      padding: 20,
+    },
+    videoPlaceholder: {
+      ...StyleSheet.absoluteFillObject,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    audioBlock: {
+      paddingHorizontal: 16,
+      paddingVertical: 18,
+      gap: 14,
+    },
+    audioBlockHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
+    audioMicWrap: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: `${colors.primary}22`,
+      borderWidth: 1,
+      borderColor: `${colors.primary}55`,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    audioLabel: { color: TEXT, fontSize: 12, fontWeight: "600", flex: 1 },
+    audioDuration: { color: DIM, fontSize: 11, fontVariant: ["tabular-nums"] },
+    mediaDivider: { height: 1, backgroundColor: colors.border },
+    captionText: {
+      color: DIM,
+      fontSize: 10,
+      fontStyle: "italic",
+      lineHeight: 16,
+      padding: 14,
+      textAlign: "justify",
+    },
+    textOnlyWrap: { paddingHorizontal: 18, paddingVertical: 20 },
+    textOnlyBody: { color: TEXT, paddingTop: 8, fontSize: 10, fontStyle: "italic", lineHeight: 16 },
+    cardFooter: { padding: 14, gap: 8 },
+    cardTitle: { color: TEXT, fontSize: 16, lineHeight: 22 },
+    locationPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      backgroundColor: subtle,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      alignSelf: "flex-start",
+      maxWidth: "100%",
+    },
+    locationText: { color: DIM, fontSize: 10, letterSpacing: 0.3 },
+    brandBlock: { alignItems: "center", gap: 2, marginTop: 4 },
+    brandLogo: { fontSize: 14, color: `${colors.primary}55`, fontFamily: "Moul", fontWeight: "300" },
+    brandTagline: { color: DIM, fontSize: 8, letterSpacing: 1, fontFamily: "MrsSans" },
+  });
+};
 
-const makeCanvasStyles = (primary, cardW, mediaH) => StyleSheet.create({
-  wrapper: {
-    position: "absolute",
-    left: -9999,
-    top: 0,
-    overflow: "hidden",
-    backgroundColor: CANVAS_BG,
-  },
-  bgTint: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 0.06,
-    backgroundColor: primary,
-  },
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 40,
-    gap: 14,
-  },
-  ownerRow: {
-    width: cardW,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "rgba(245,239,230,0.12)",
-    borderWidth: 1.5,
-    borderColor: `${primary}50`,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
-  avatarImg: { width: "100%", height: "100%" },
-  avatarInitial: { color: CANVAS_TEXT, fontSize: 15, fontWeight: "700" },
-  ownerName: { color: CANVAS_TEXT, fontSize: 13, fontWeight: "600" },
-  ownerVerb: { color: CANVAS_DIM, fontSize: 10, marginTop: 1 },
-  card: {
-    width: cardW,
-    backgroundColor: "#181510",
-    borderRadius: 18,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "rgba(245,239,230,0.10)",
-  },
-  mediaArea: {
-    width: cardW,
-    height: mediaH,
-    backgroundColor: "#1d1914",
-    overflow: "hidden",
-  },
-  videoPlaceholder: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  audioBlock: {
-    paddingHorizontal: 16,
-    paddingVertical: 18,
-    gap: 14,
-  },
-  audioBlockHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  audioMicWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: `${primary}22`,
-    borderWidth: 1,
-    borderColor: `${primary}55`,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  audioLabel: {
-    color: CANVAS_TEXT,
-    fontSize: 12,
-    fontWeight: "600",
-    flex: 1,
-  },
-  audioDuration: {
-    color: CANVAS_DIM,
-    fontSize: 11,
-    fontVariant: ["tabular-nums"],
-  },
-  mediaDivider: { height: 1, backgroundColor: "rgba(245,239,230,0.08)" },
-  captionText: {
-    color: CANVAS_DIM,
-    fontSize: 10,
-    fontStyle: "italic",
-    lineHeight: 16,
-    padding: 14,
-    textAlign: "justify",
-  },
-  textOnlyWrap: { paddingHorizontal: 18, paddingVertical: 20 },
-  textOnlyBody: {
-    color: CANVAS_TEXT,
-    paddingTop: 8,
-    fontSize: 10,
-    fontStyle: "italic",
-    lineHeight: 16,
-  },
-  cardFooter: { padding: 14, gap: 8 },
-  cardTitle: {
-    color: CANVAS_TEXT,
-    fontSize: 16,
-    lineHeight: 22,
-  },
-  locationPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "rgba(245,239,230,0.08)",
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(245,239,230,0.12)",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    alignSelf: "flex-start",
-    maxWidth: "100%",
-  },
-  locationText: { color: CANVAS_DIM, fontSize: 10, letterSpacing: 0.3 },
-  // Brand — same as LoginScreen
-  brandBlock: { alignItems: "center", gap: 2, marginTop: 4 },
-  brandLogo: {
-    fontSize: 14,
-    color: `${primary}55`,
-    fontFamily: "Moul",
-    fontWeight: "300",
-  },
-  brandTagline: {
-    color: `${CANVAS_DIM}`,
-    fontSize: 8,
-    letterSpacing: 1,
-    fontFamily: "MrsSans",
-  },
-});
-
-function CapsuleShareCanvas({ canvasRef, capsule, activePhotoUrl, contents, colors }) {
+function CapsuleShareCanvas({ canvasRef, capsule, activePhotoUrl, contents, colors, isDark }) {
   const { width: screenW } = useWindowDimensions();
 
   const CW = screenW;
@@ -798,8 +643,8 @@ function CapsuleShareCanvas({ canvasRef, capsule, activePhotoUrl, contents, colo
   const mediaH = Math.round(cardW * 0.75);
 
   const cs = useMemo(
-    () => makeCanvasStyles(colors.primary, cardW, mediaH),
-    [colors.primary, cardW, mediaH]
+    () => makeCanvasStyles(colors, isDark, cardW, mediaH),
+    [colors, isDark, cardW, mediaH]
   );
 
   const textItem = contents?.find(c => c.content_type === "text");
@@ -853,7 +698,9 @@ function CapsuleShareCanvas({ canvasRef, capsule, activePhotoUrl, contents, colo
 
           {/* Audio block — free-flowing, like text-only */}
           {hasAudio && (
-            <CanvasAudioBlock voiceItem={voiceItem} primary={colors.primary} cs={cs} />
+            <View style={cs.audioArea}>
+              <CanvasAudioBlock voiceItem={voiceItem} />
+            </View>
           )}
 
           {/* Caption alongside media */}
@@ -885,7 +732,7 @@ function CapsuleShareCanvas({ canvasRef, capsule, activePhotoUrl, contents, colo
           <View style={cs.cardFooter}>
             {!!capsule.locationName && (
               <View style={cs.locationPill}>
-                <Ionicons name="location-outline" size={11} color={CANVAS_DIM} />
+                <Ionicons name="location-outline" size={11} color={colors.mutedFg} />
                 <Text style={cs.locationText} numberOfLines={1} ellipsizeMode="tail">
                   {capsule.locationName}
                 </Text>
@@ -1178,6 +1025,16 @@ const makeStyles = (colors) => StyleSheet.create({
 export default function UnlockedCapsuleScreen() {
   const { colors, isDark, mapStyle } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    setAudioModeAsync({
+      shouldDuckAndroid: true,
+      interruptionMode: "duckOthers",
+      staysActiveInBackground: false,
+      playThroughEarpieceAndroid: false,
+    }).catch(() => {});
+  }, []);
   const navigation = useNavigation();
   const route = useRoute();
   const { user } = useAuth();
@@ -1297,19 +1154,32 @@ export default function UnlockedCapsuleScreen() {
   };
 
   const openAtlasPicker = async () => {
+    // If the capsule already has a saved location, open there
+    if (capsule.latitude != null && capsule.longitude != null) {
+      const coord = { latitude: parseFloat(capsule.latitude), longitude: parseFloat(capsule.longitude) };
+      setPinCoord(coord);
+      setMapRegion({ ...coord, latitudeDelta: 0.01, longitudeDelta: 0.01 });
+      setMapPickerVisible(true);
+      return;
+    }
+
+    // Open the map immediately with a world-level fallback so the user
+    // can drag right away — then try to snap to GPS in the background
+    const fallback = { latitude: 20, longitude: 0, latitudeDelta: 60, longitudeDelta: 60 };
+    setPinCoord({ latitude: fallback.latitude, longitude: fallback.longitude });
+    setMapRegion(fallback);
+    setMapPickerVisible(true);
+
+    // Attempt GPS in background to re-centre to a useful starting point
     try {
-      const { status: perm } = await Location.requestForegroundPermissionsAsync();
-      if (perm !== "granted") {
-        Alert.alert("Location required", "Allow location access to pin on Atlas.");
-        return;
-      }
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") return;
       const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       const coord = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
       setPinCoord(coord);
       setMapRegion({ ...coord, latitudeDelta: 0.01, longitudeDelta: 0.01 });
-      setMapPickerVisible(true);
     } catch {
-      Alert.alert("Error", "Could not get your location.");
+      // GPS failed — the user is already on the map and can drag manually
     }
   };
 
@@ -1368,9 +1238,30 @@ export default function UnlockedCapsuleScreen() {
       }
     } else {
       // Private capsule options
+      const hasCoords = capsule.latitude != null && capsule.longitude != null;
       buttons.push({
         text: "Make Public",
         onPress: async () => {
+          if (!hasCoords) {
+            // No location set — ask to place on map first so it can be found in Atlas
+            Alert.alert(
+              "Add Location",
+              "This capsule has no location. Place it on the map so others can discover it in Atlas.",
+              [
+                { text: "Place on Map", onPress: openAtlasPicker },
+                {
+                  text: "Skip",
+                  onPress: async () => {
+                    const res = await updateVisibility(capsule._id || capsule.id, { is_public: true });
+                    setIsPublic(res.is_public);
+                    setListedInAtlas(res.listed_in_atlas);
+                  },
+                },
+                { text: "Cancel", style: "cancel" },
+              ]
+            );
+            return;
+          }
           const res = await updateVisibility(capsule._id || capsule.id, { is_public: true });
           setIsPublic(res.is_public);
           setListedInAtlas(res.listed_in_atlas);
@@ -1571,17 +1462,29 @@ export default function UnlockedCapsuleScreen() {
           <Text style={styles.mapHint}>Drag the map to position the pin</Text>
           {mapRegion && (
             <View style={styles.mapContainer}>
-              <MapView
-                style={styles.mapView}
-                initialRegion={mapRegion}
-                onRegionChangeComplete={(region) => {
-                  setPinCoord({ latitude: region.latitude, longitude: region.longitude });
-                }}
-                customMapStyle={mapStyle}
-                userInterfaceStyle={isDark ? "dark" : "light"}
-                showsUserLocation
-                showsMyLocationButton
-              />
+              {Platform.OS === "android" ? (
+                <OsmMapView
+                  style={styles.mapView}
+                  initialRegion={mapRegion}
+                  onRegionChangeComplete={(region) => {
+                    setPinCoord({ latitude: region.latitude, longitude: region.longitude });
+                  }}
+                  isDark={isDark}
+                  primaryColor={colors.primary}
+                />
+              ) : (
+                <MapView
+                  style={styles.mapView}
+                  initialRegion={mapRegion}
+                  onRegionChangeComplete={(region) => {
+                    setPinCoord({ latitude: region.latitude, longitude: region.longitude });
+                  }}
+                  customMapStyle={mapStyle}
+                  userInterfaceStyle={isDark ? "dark" : "light"}
+                  showsUserLocation
+                  showsMyLocationButton
+                />
+              )}
               {/* Fixed pin in center of map */}
               <View style={styles.fixedPinWrapper} pointerEvents="none">
                 <Ionicons name="location" size={40} color={colors.primary} />
@@ -1604,6 +1507,7 @@ export default function UnlockedCapsuleScreen() {
         }
         contents={contents}
         colors={colors}
+        isDark={isDark}
       />
 
       {/* Share overlay */}
