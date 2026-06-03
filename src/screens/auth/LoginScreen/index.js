@@ -11,7 +11,6 @@ import { saveTokens } from "@/services/storage";
 import { AuthContext } from "@/context/AuthContext";
 import { ParticleField } from "./ParticleField";
 import { FutrrInput } from "@/components/ui/FutrrInput";
-import { Divider } from "@/components/ui/Divider";
 import { makeStyles } from "./styles";
 import PillButton from "@/components/ui/PillButton";
 
@@ -193,33 +192,6 @@ export default function LoginScreen() {
         ]}
       >
         <View style={{ paddingHorizontal: 32, paddingBottom: 16 }}>
-          <PillButton
-            onPress={() => navigation.navigate(ROUTES.ONBOARDING, { startStep: 3, isOAuthFlow: true, oauthProvider: "apple" })}
-            variant="secondary"
-            fullWidth
-            size="lg"
-          >
-            <View alignItems="center" flexDirection="row" justifyContent="center">
-              <Ionicons name="logo-apple" size={18} color={colors.foreground} style={{ marginRight: 8 }} />
-              <Text style={{color: colors.foreground}}>Continue with Apple</Text>
-            </View>
-          </PillButton>
-
-          <View style={{ height: 10 }} />
-
-          <PillButton
-            onPress={() => navigation.navigate(ROUTES.ONBOARDING, { startStep: 3, isOAuthFlow: true, oauthProvider: "google" })}
-            variant="secondary"
-            fullWidth
-            size="lg"
-            >
-            <View alignItems="center" flexDirection="row" justifyContent="center">
-              <Ionicons name="logo-google" size={18} color={colors.foreground} style={{ marginRight: 8 }} />
-              <Text style={{color: colors.foreground}}>Continue with Google</Text>
-            </View>
-          </PillButton>
-          <Divider />
-
           <PillButton
             onPress={handleOpenForm}
             fullWidth

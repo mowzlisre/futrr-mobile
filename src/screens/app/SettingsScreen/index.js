@@ -32,8 +32,7 @@ import {
 
 const NOTIF_PREFS = [
   { key: "notify_capsule_created", label: "Capsule Created", sub: "When you create a new capsule", icon: "cube-outline" },
-  { key: "notify_friend_request", label: "Friend Requests", sub: "New follow or friend requests", icon: "person-add-outline" },
-  { key: "notify_capsule_unlocked", label: "Capsule Unlocked", sub: "When a capsule is unlocked", icon: "lock-open-outline" },
+{ key: "notify_capsule_unlocked", label: "Capsule Unlocked", sub: "When a capsule is unlocked", icon: "lock-open-outline" },
   { key: "notify_capsule_shared", label: "Capsule Shared", sub: "When someone shares a capsule with you", icon: "share-outline" },
   { key: "notify_nearby_capsule", label: "Nearby Capsule Alert", sub: "Capsules near your location", icon: "location-outline" },
 ];
@@ -51,9 +50,9 @@ export default function SettingsScreen() {
   const { colors, isDark, mode, setMode } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  const [isPrivate, setIsPrivate] = useState(false);
-  const [privacyLoading, setPrivacyLoading] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
 
   // Notification prefs
   const [notifPrefs, setNotifPrefs] = useState({});
@@ -72,7 +71,6 @@ export default function SettingsScreen() {
   useEffect(() => {
     getProfile()
       .then((data) => {
-        setIsPrivate(data.is_private ?? false);
         const prefs = {};
         NOTIF_PREFS.forEach(({ key }) => { prefs[key] = data[key] ?? true; });
         setNotifPrefs(prefs);
@@ -83,20 +81,6 @@ export default function SettingsScreen() {
       .then(setQuota)
       .catch(() => {});
   }, []);
-
-  const handlePrivacyToggle = async (value) => {
-    hapticLight();
-    setIsPrivate(value);
-    setPrivacyLoading(true);
-    try {
-      await updateProfile({ is_private: value });
-    } catch {
-      setIsPrivate(!value);
-      Alert.alert("Error", "Could not update privacy setting.");
-    } finally {
-      setPrivacyLoading(false);
-    }
-  };
 
   const handleNotifToggle = useCallback(async (key, value) => {
     hapticLight();
@@ -124,29 +108,38 @@ export default function SettingsScreen() {
       "This will permanently delete your account, all your capsules, and all associated media. This cannot be undone.",
       [
         { text: "Cancel", style: "cancel" },
-        { text: "Delete", style: "destructive", onPress: confirmDelete },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            setDeletePassword("");
+            setDeleteModalVisible(true);
+          },
+        },
       ]
     );
   };
 
-  const confirmDelete = () => {
-    Alert.prompt(
-      "Confirm Password",
-      "Enter your password to confirm account deletion.",
-      async (password) => {
-        if (!password) return;
-        setDeleting(true);
-        try {
-          await deleteAccount(password);
-          await logout();
-        } catch (err) {
-          setDeleting(false);
-          const msg = err?.response?.data?.error || "Could not delete account. Check your password.";
-          Alert.alert("Error", msg);
-        }
-      },
-      "secure-text"
-    );
+  const confirmDelete = async () => {
+    if (!deletePassword.trim()) {
+      Alert.alert("Password required", "Please enter your password to confirm.");
+      return;
+    }
+    setDeleting(true);
+    try {
+      await deleteAccount(deletePassword);
+      setDeleteModalVisible(false);
+      Alert.alert(
+        "Account deleted",
+        "Your account and all associated data have been permanently removed.",
+        [{ text: "OK", onPress: logout }]
+      );
+    } catch (err) {
+      const msg = err?.response?.data?.error || "Could not delete account. Check your password.";
+      Alert.alert("Error", msg);
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleSubmitTicket = async () => {
@@ -324,45 +317,6 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* Privacy section */}
-        <Text style={styles.sectionTitle}>PRIVACY</Text>
-        <View style={styles.menuSection}>
-          <View style={[styles.menuItem, styles.menuItemLast]}>
-            <View style={styles.menuItemLeft}>
-              <View style={styles.menuIconWrap}>
-                <Ionicons name="lock-closed-outline" size={20} color={colors.mutedFg} />
-              </View>
-              <View>
-                <Text style={styles.menuItemLabel}>Private Account</Text>
-                <Text style={styles.menuItemSub}>
-                  {isPrivate ? "Only approved followers see your capsules" : "Anyone can follow you"}
-                </Text>
-              </View>
-            </View>
-            {privacyLoading ? (
-              <ActivityIndicator size="small" color={colors.primary} />
-            ) : (
-              <Switch
-                value={isPrivate}
-                onValueChange={handlePrivacyToggle}
-                trackColor={{ false: colors.border, true: `${colors.primary}80` }}
-                thumbColor={isPrivate ? colors.primary : colors.mutedFg}
-                style={{ transform: [{ scale: 0.8 }] }}
-                accessibilityLabel="Private account toggle"
-                accessibilityRole="switch"
-              />
-            )}
-          </View>
-        </View>
-
-        {/* Sign Out */}
-        <PillButton
-          label="Sign Out"
-          variant="danger"
-          fullWidth
-          onPress={() => Alert.alert("Sign Out", "Are you sure you want to sign out?", [{ text: "Cancel", style: "cancel" }, { text: "Sign Out", style: "destructive", onPress: logout }])}
-        />
-
         {/* Delete Account */}
         <PillButton
           label="Delete Account"
@@ -450,6 +404,56 @@ export default function SettingsScreen() {
               />
             </ScrollView>
           </SafeAreaView>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Delete Account Password Modal */}
+      <Modal
+        visible={deleteModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !deleting && setDeleteModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.deleteOverlay}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <View style={[styles.deleteModal, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[styles.deleteModalTitle, { color: colors.foreground }]}>Confirm deletion</Text>
+            <Text style={[styles.deleteModalSub, { color: colors.mutedFg }]}>
+              Enter your password to permanently delete your account.
+            </Text>
+            <TextInput
+              style={[styles.deleteModalInput, { color: colors.foreground, backgroundColor: colors.background, borderColor: colors.border }]}
+              value={deletePassword}
+              onChangeText={setDeletePassword}
+              placeholder="Password"
+              placeholderTextColor={colors.mutedFg}
+              secureTextEntry
+              autoFocus
+              editable={!deleting}
+            />
+            <View style={styles.deleteModalActions}>
+              <Pressable
+                style={[styles.deleteModalBtn, { borderColor: colors.border }]}
+                onPress={() => setDeleteModalVisible(false)}
+                disabled={deleting}
+              >
+                <Text style={{ color: colors.mutedFg, fontWeight: "500" }}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.deleteModalBtn, styles.deleteModalBtnDanger]}
+                onPress={confirmDelete}
+                disabled={deleting}
+              >
+                {deleting ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={{ color: "#fff", fontWeight: "600" }}>Delete</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
         </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
@@ -565,22 +569,52 @@ const makeStyles = (colors) =>
       color: colors.mutedFg,
       marginTop: 1,
     },
-    logoutButton: {
-      flexDirection: "row",
+    deleteOverlay: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.55)",
       alignItems: "center",
       justifyContent: "center",
-      gap: 8,
-      backgroundColor: `${colors.error}1A`,
-      borderRadius: 14,
-      paddingVertical: 14,
-      borderWidth: 1,
-      borderColor: `${colors.error}33`,
-      marginBottom: 12,
+      paddingHorizontal: 24,
     },
-    logoutText: {
+    deleteModal: {
+      width: "100%",
+      borderRadius: 20,
+      borderWidth: 1,
+      padding: 24,
+      gap: 12,
+    },
+    deleteModalTitle: {
+      fontSize: 17,
+      fontWeight: "600",
+    },
+    deleteModalSub: {
+      fontSize: 13,
+      lineHeight: 19,
+    },
+    deleteModalInput: {
+      borderWidth: 1,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
       fontSize: 15,
-      color: colors.error,
-      fontWeight: "500",
+      marginTop: 4,
+    },
+    deleteModalActions: {
+      flexDirection: "row",
+      gap: 10,
+      marginTop: 4,
+    },
+    deleteModalBtn: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingVertical: 13,
+      borderRadius: 12,
+      borderWidth: 1,
+    },
+    deleteModalBtnDanger: {
+      backgroundColor: "#ef4444",
+      borderColor: "#ef4444",
     },
     deleteButton: {
       flexDirection: "row",

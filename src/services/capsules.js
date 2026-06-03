@@ -77,6 +77,11 @@ export const declineCapsuleInvitation = async (capsuleId) => {
   await api.delete(`/capsules/${capsuleId}/invitation/`);
 };
 
+export const breakCapsule = async (id) => {
+  const res = await api.post(`/capsules/${id}/break/`);
+  return res.data; // { broken: true }
+};
+
 export const updateVisibility = async (id, { is_public, listed_in_atlas, latitude, longitude, location_name } = {}) => {
   const body = {};
   if (is_public !== undefined) body.is_public = is_public;

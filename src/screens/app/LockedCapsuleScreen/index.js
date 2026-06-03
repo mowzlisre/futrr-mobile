@@ -24,10 +24,12 @@ import { useTheme } from "@/hooks/useTheme";
 import { RecipientsSection, RecipientsModal } from "@/components/capsule/RecipientsSection";
 import { getCountdown, getProgress, formatLongDate } from "@/utils/date";
 import { toWords } from "@/utils/numberWords";
-import { unlockCapsule } from "@/services/capsules";
+import { unlockCapsule, breakCapsule } from "@/services/capsules";
 import { normalizeCapsule } from "@/utils/normalize";
 import { useAuth } from "@/hooks/useAuth";
-import { hapticSuccess, hapticError } from "@/utils/haptics";
+import { hapticSuccess, hapticError, hapticWarning } from "@/utils/haptics";
+import { vaultBus } from "@/utils/vaultBus";
+import { invalidateList } from "@/utils/capsuleCache";
 import PillButton from "@/components/ui/PillButton";
 import Glitters from "@/components/Glitters";
 import ShareOverlay from "@/components/ShareOverlay";
@@ -686,6 +688,7 @@ export default function LockedCapsuleScreen() {
   const [opening, setOpening] = useState(false);
   const [showPassphrase, setShowPassphrase] = useState(false);
   const [storedPassphrase, setStoredPassphrase] = useState(null);
+  const [breaking, setBreaking] = useState(false);
 
   // Per-section animated opacity values for the exit animation
   const aFrom      = useRef(new Animated.Value(1)).current;
@@ -809,6 +812,32 @@ export default function LockedCapsuleScreen() {
     Alert.alert("Reminder set", `You'll be notified when this capsule unlocks on ${formatLongDate(capsule.unlocksAt)}.`);
   };
 
+  const handleBreakPress = () => {
+    hapticWarning();
+    Alert.alert(
+      "Break this capsule?",
+      "This permanently deletes all contents and cannot be undone. The capsule title and metadata will remain as a tombstone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Break capsule", style: "destructive", onPress: handleBreakConfirm },
+      ]
+    );
+  };
+
+  const handleBreakConfirm = async () => {
+    setBreaking(true);
+    try {
+      await breakCapsule(capsule._id || capsule.id);
+      invalidateList("vault");
+      vaultBus.patch(capsule._id || capsule.id, { status: "broken" });
+      navigation.navigate(ROUTES.VAULT);
+    } catch {
+      Alert.alert("Error", "Could not break this capsule. Please try again.");
+    } finally {
+      setBreaking(false);
+    }
+  };
+
   const handleShare = async () => {
     try {
       setIsCapturing(true);
@@ -844,9 +873,24 @@ export default function LockedCapsuleScreen() {
             <Text style={[styles.headerTitle, { color: TEXT_DIM }]}>
               {unlockable ? "READY TO OPEN" : "SEALED CAPSULE"}
             </Text>
-            <Pressable onPress={handleShare} style={styles.headerBtn}>
-              <Ionicons name="share-outline" size={22} color={TEXT_PRIMARY} />
-            </Pressable>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <Pressable onPress={handleShare} style={styles.headerBtn}>
+                <Ionicons name="share-outline" size={22} color={TEXT_PRIMARY} />
+              </Pressable>
+              {(capsule.createdBy === user?.id || capsule.from === "You") && (
+                <Pressable
+                  onPress={handleBreakPress}
+                  disabled={breaking}
+                  style={styles.headerBtn}
+                >
+                  {breaking ? (
+                    <ActivityIndicator size="small" color={TEXT_PRIMARY} />
+                  ) : (
+                    <Ionicons name="trash-outline" size={20} color={TEXT_PRIMARY} />
+                  )}
+                </Pressable>
+              )}
+            </View>
           </View>
         ) : (
           <View style={styles.header} />

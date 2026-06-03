@@ -654,10 +654,20 @@ export default function CreateCapsuleScreen() {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
+        setShowInAtlas(false);
         Alert.alert("Location required", "Allow location access to tag this capsule on the Atlas.");
         return;
       }
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      // Try last-known position first (instant, works on emulators)
+      let loc = await Location.getLastKnownPositionAsync({ maxAge: 60000 });
+      // Fall back to a fresh fix with low accuracy + timeout
+      if (!loc) {
+        loc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Low,
+          timeInterval: 500,
+          mayShowUserSettingsDialog: true,
+        });
+      }
       const [geo] = await Location.reverseGeocodeAsync({
         latitude: loc.coords.latitude,
         longitude: loc.coords.longitude,
@@ -668,6 +678,7 @@ export default function CreateCapsuleScreen() {
       setAtlasLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude, name });
       setShowInAtlas(true);
     } catch (_) {
+      setShowInAtlas(false);
       Alert.alert("Location error", "Could not get your location. Please try again.");
     } finally {
       setFetchingLocation(false);

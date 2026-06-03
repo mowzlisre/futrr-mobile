@@ -14,62 +14,20 @@ import {
 } from "react-native";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
-import * as ImagePicker from "expo-image-picker";
-import { ROUTES, fonts } from "@/constants";
 import { useAuth } from "@/hooks/useAuth";
 import { useTheme } from "@/hooks/useTheme";
 import { getProfile, uploadAvatar } from "@/services/user";
 import { getCapsules } from "@/services/capsules";
-import { normalizeCapsule } from "@/utils/normalize";
-import { formatDate } from "@/utils/date";
 import { getCachedList, setCachedList, invalidateList } from "@/utils/capsuleCache";
-
-// ─── Pinned capsule card ───────────────────────────────────────────────────────
-
-function PinnedCard({ capsule, onPress, colors, styles }) {
-  const isUnlocked = capsule.status === "unlocked";
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [styles.pinnedCard, pressed && { opacity: 0.85 }]}
-    >
-      <View style={[styles.pinnedLock, isUnlocked && styles.pinnedLockUnlocked]}>
-        <Ionicons
-          name={isUnlocked ? "lock-open-outline" : "lock-closed-outline"}
-          size={14}
-          color={isUnlocked ? colors.primary : colors.mutedFg}
-        />
-      </View>
-      <Text style={styles.pinnedTitle} numberOfLines={2}>
-        {capsule.title}
-      </Text>
-      <Text style={styles.pinnedDate}>{formatDate(capsule.unlocksAt)}</Text>
-    </Pressable>
-  );
-}
-
-// ─── Stat display ─────────────────────────────────────────────────────────────
-
-function StatItem({ value, label, styles }) {
-  return (
-    <View style={styles.statItem}>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  );
-}
-
-// ─── Main screen ──────────────────────────────────────────────────────────────
+import * as ImagePicker from "expo-image-picker";
 
 export default function ProfileScreen() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [profile, setProfile] = useState(null);
-  const [capsules, setCapsules] = useState([]);
-
+  const [capsulesCount, setCapsulesCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState(null);
@@ -78,24 +36,23 @@ export default function ProfileScreen() {
 
   const load = useCallback(async (force = false) => {
     try {
-      // Serve profile + capsules from cache unless forced (e.g. pull-to-refresh)
       const cachedProfile  = !force && getCachedList("profile");
       const cachedCapsules = !force && getCachedList("vault");
 
       const [profileData, capsulesData] = await Promise.all([
-        cachedProfile  ?? getProfile().then(d => { setCachedList("profile", d); return d; }),
-        cachedCapsules ?? getCapsules().then(d => { setCachedList("vault",   d); return d; }),
+        cachedProfile  || getProfile().then(d => { setCachedList("profile", d); return d; }),
+        cachedCapsules || getCapsules().then(d => { setCachedList("vault",   d); return d; }),
       ]);
 
       setProfile(profileData);
       if (profileData.avatar) setAvatarUrl(profileData.avatar);
-      setCapsules(capsulesData.map((c) => normalizeCapsule(c, user?.id)));
+      setCapsulesCount(Array.isArray(capsulesData) ? capsulesData.length : 0);
     } catch {
       // fall back silently
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, []);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -110,12 +67,7 @@ export default function ProfileScreen() {
   }, [load]);
 
   const displayUser = profile || user;
-  const followers = profile?.followers_count ?? 0;
-  const following = profile?.following_count ?? 0;
-  const capsulesCount = capsules.length;
   const initial = displayUser?.username?.[0]?.toUpperCase() ?? "?";
-
-  const navigation = useNavigation();
 
   const handleUploadAvatar = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -134,6 +86,8 @@ export default function ProfileScreen() {
       setUploadingAvatar(true);
       const { avatar } = await uploadAvatar(result.assets[0].uri);
       setAvatarUrl(avatar);
+      setProfile((p) => p ? { ...p, avatar } : p);
+      invalidateList("profile");
     } catch {
       Alert.alert("Upload failed", "Could not update your avatar. Please try again.");
     } finally {
@@ -172,14 +126,6 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleCapsulePress = (capsule) => {
-    if (capsule.status === "unlocked") {
-      navigation.navigate(ROUTES.UNLOCKED_CAPSULE, { capsule });
-    } else {
-      navigation.navigate(ROUTES.LOCKED_CAPSULE, { capsule });
-    }
-  };
-
   return (
     <View style={styles.container}>
       <ScrollView
@@ -213,47 +159,25 @@ export default function ProfileScreen() {
           </Pressable>
           <Text style={styles.username}>{displayUser?.username || "Your Name"}</Text>
           <Text style={styles.email}>{displayUser?.email || "you@futrr.app"}</Text>
-        </View>
-
-        {/* ── Instagram-style stats ── */}
-        <View style={styles.statsRow}>
-          <StatItem value={followers} label="Followers" styles={styles} />
-          <View style={styles.statDivider} />
-          <StatItem value={following} label="Following" styles={styles} />
-          <View style={styles.statDivider} />
-          <StatItem value={capsulesCount} label="Capsules" styles={styles} />
-        </View>
-
-        {/* ── Capsules section ── */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>MY CAPSULES</Text>
-        </View>
-
-        {loading ? (
-          <ActivityIndicator color={colors.primary} style={{ marginTop: 24 }} />
-        ) : capsules.length === 0 ? (
-          <View style={styles.emptyBox}>
-            <Ionicons name="lock-closed-outline" size={32} color={colors.border} />
-            <Text style={styles.emptyText}>No capsules yet</Text>
+          <View style={styles.capsuleBadge}>
+            <Ionicons name="cube-outline" size={12} color={colors.primary} />
+            <Text style={styles.capsuleBadgeText}>{capsulesCount} Capsules</Text>
           </View>
-        ) : (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.pinnedList}
-          >
-            {capsules.map((capsule) => (
-              <PinnedCard
-                key={capsule.id}
-                capsule={capsule}
-                onPress={() => handleCapsulePress(capsule)}
-                colors={colors}
-                styles={styles}
-              />
-            ))}
-          </ScrollView>
-        )}
+        </View>
 
+        {/* ── Sign Out ── */}
+        <Pressable
+          onPress={() =>
+            Alert.alert("Sign Out", "Are you sure you want to sign out?", [
+              { text: "Cancel", style: "cancel" },
+              { text: "Sign Out", style: "destructive", onPress: logout },
+            ])
+          }
+          style={({ pressed }) => [styles.signOutBtn, pressed && { opacity: 0.7 }]}
+        >
+          <Ionicons name="log-out-outline" size={18} color={colors.error ?? "#ef4444"} />
+          <Text style={styles.signOutText}>Sign Out</Text>
+        </Pressable>
       </ScrollView>
 
       {/* ── Full-screen avatar viewer ── */}
@@ -286,27 +210,29 @@ const makeStyles = (colors) => StyleSheet.create({
     backgroundColor: colors.background,
   },
   content: {
-    paddingHorizontal: 20,
-    paddingBottom: 160,
+    flexGrow: 1,
+    justifyContent: "center",
+    paddingHorizontal: 32,
+    paddingBottom: 40,
   },
   avatarSection: {
     alignItems: "center",
-    marginBottom: 24,
+    marginBottom: 48,
   },
   avatarWrapper: {
-    marginBottom: 14,
+    marginBottom: 16,
   },
   avatarRing: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
     borderWidth: 1.5,
     borderColor: `${colors.primary}50`,
     padding: 3,
   },
   avatar: {
     flex: 1,
-    borderRadius: 42,
+    borderRadius: 47,
     backgroundColor: colors.secondaryBackground,
     alignItems: "center",
     justifyContent: "center",
@@ -315,10 +241,10 @@ const makeStyles = (colors) => StyleSheet.create({
   avatarImage: {
     width: "100%",
     height: "100%",
-    borderRadius: 42,
+    borderRadius: 47,
   },
   avatarInitial: {
-    fontSize: 34,
+    fontSize: 38,
     fontWeight: "300",
     color: colors.foreground,
   },
@@ -326,9 +252,9 @@ const makeStyles = (colors) => StyleSheet.create({
     position: "absolute",
     bottom: 0,
     right: 0,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
@@ -336,7 +262,7 @@ const makeStyles = (colors) => StyleSheet.create({
     borderColor: colors.background,
   },
   username: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: "300",
     color: colors.foreground,
     marginBottom: 4,
@@ -344,100 +270,39 @@ const makeStyles = (colors) => StyleSheet.create({
   email: {
     fontSize: 13,
     color: colors.mutedFg,
-  },
-  // ── Instagram stats row ──
-  statsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingVertical: 16,
-    marginBottom: 32,
-  },
-  statItem: {
-    flex: 1,
-    alignItems: "center",
-  },
-  statValue: {
-    fontSize: 22,
-    fontWeight: "600",
-    color: colors.foreground,
-  },
-  statLabel: {
-    fontSize: 11,
-    lineHeight: 16,
-    color: colors.mutedFg,
-    marginTop: 3,
-  },
-  statDivider: {
-    width: 1,
-    height: 32,
-    backgroundColor: colors.border,
-  },
-  // ── Capsules section ──
-  sectionHeader: {
     marginBottom: 14,
   },
-  sectionTitle: {
-    fontSize: 10,
-    lineHeight: 14,
-    color: colors.mutedFg,
-    letterSpacing: 2,
-    textTransform: "uppercase",
-    fontWeight: "500",
-  },
-  pinnedList: {
-    gap: 12,
-    paddingRight: 4,
-  },
-  pinnedCard: {
-    width: 140,
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    padding: 14,
+  capsuleBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: `${colors.primary}15`,
     borderWidth: 1,
-    borderColor: colors.border,
-    gap: 8,
+    borderColor: `${colors.primary}35`,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
   },
-  pinnedLock: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: colors.secondaryBackground,
+  capsuleBadgeText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: colors.primary,
+  },
+  signOutBtn: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: `${colors.error ?? "#ef4444"}33`,
+    backgroundColor: `${colors.error ?? "#ef4444"}0f`,
   },
-  pinnedLockUnlocked: {
-    backgroundColor: `${colors.primary}18`,
-  },
-  pinnedTitle: {
-    fontSize: 13,
-    fontWeight: "300",
-    color: colors.foreground,
-    fontFamily: fonts.serif,
-    lineHeight: 18,
-  },
-  pinnedDate: {
-    fontSize: 10,
-    lineHeight: 14,
-    color: colors.mutedFg,
-  },
-  emptyBox: {
-    alignItems: "center",
-    gap: 10,
-    marginTop: 32,
-  },
-  emptyText: {
-    fontSize: 14,
-    color: colors.mutedFg,
-  },
-  emptySubtext: {
-    fontSize: 12,
-    lineHeight: 17,
-    color: colors.mutedFg,
-    textAlign: "center",
+  signOutText: {
+    fontSize: 15,
+    fontWeight: "500",
+    color: colors.error ?? "#ef4444",
   },
   // ── Avatar viewer modal ──
   avatarViewOverlay: {

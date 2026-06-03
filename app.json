@@ -1,25 +1,30 @@
 {
   "expo": {
-    "name": "futrr",
-    "slug": "futrr-app",
-    "version": "1.0.0",
+    "name": "Futrr",
+    "slug": "futrr",
+    "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "scheme": "futrr",
+    "owner": "futrr",
     "splash": {
-      "image": "./assets/icon.png",
+      "image": "./assets/futrr-banner-transparent.png",
       "resizeMode": "contain",
       "backgroundColor": "#0A0A0F"
     },
     "ios": {
       "supportsTablet": false,
+      "buildNumber": "1",
+      "bundleIdentifier": "com.futrr.app",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "futrr uses your location to show nearby time capsules on the Atlas."
-      },
-      "bundleIdentifier": "com.mowzlisre.futrr"
+        "NSLocationWhenInUseUsageDescription": "futrr uses your location to show nearby time capsules on the Atlas. Your location is never collected, stored or shared to any 3rd party services.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
+      "versionCode": 1,
+      "package": "com.futrr.app",
       "adaptiveIcon": {
         "backgroundColor": "#0A0A0F"
       },
@@ -30,8 +35,7 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS"
-      ],
-      "package": "com.mowzlisre.futrr"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -62,9 +66,8 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "f839df93-b24b-417e-a1bd-f2ffca27c9d6"
+        "projectId": "6c53f86c-8a8c-465a-989a-b3a2293c087b"
       }
-    },
-    "owner": "futrr-app"
+    }
   }
 }

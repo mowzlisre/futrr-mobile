@@ -424,9 +424,7 @@ export default function OnboardingScreen({ route }) {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const startStep = route?.params?.startStep ?? 1;
-  const isOAuthFlow = route?.params?.isOAuthFlow ?? false;
-  const oauthProvider = route?.params?.oauthProvider ?? null;
-  const { login, updateUser, user: authUser } = useContext(AuthContext);
+const { login, updateUser, user: authUser } = useContext(AuthContext);
   const navigation = useNavigation();
   const { startTour } = useTour();
 
@@ -638,8 +636,6 @@ export default function OnboardingScreen({ route }) {
     if (!username.trim() || username.length < 3) { setError("Choose a username (at least 3 characters)"); return; }
     if (usernameAvailable === false) { setError("Username is not available"); return; }
 
-    if (isOAuthFlow) { goNext(); return; }
-
     try {
       setLoading(true);
       setError("");
@@ -665,11 +661,6 @@ export default function OnboardingScreen({ route }) {
     const dobStr = dob.toISOString().split("T")[0];
     const tz = timezone || availableTimezones[0] || Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-    if (isOAuthFlow) {
-      animatePhase("welcome");
-      return;
-    }
-
     try {
       setLoading(true);
       setError("");
@@ -689,13 +680,7 @@ export default function OnboardingScreen({ route }) {
   };
 
   const handleFinish = () => {
-    if (isOAuthFlow) {
-      login({
-        email: "",
-        isPreboarded: true,
-        first_name: firstName.trim(),
-      });
-    } else if (registeredUser) {
+    if (registeredUser) {
       login({ ...registeredUser, isPreboarded: true, first_name: firstName.trim() });
     } else {
       updateUser({ isPreboarded: true, first_name: firstName.trim() });
@@ -785,28 +770,6 @@ export default function OnboardingScreen({ route }) {
             <Text style={styles.stepSubtitle}>
               Your email is important, so that we will reach you when the time comes!
             </Text>
-
-            {/* OAuth buttons — hidden once OTP is sent */}
-            {!otpSent && (
-              <>
-                <Pressable
-                  style={({ pressed }) => [styles.oauthBtn, pressed && { opacity: 0.75 }]}
-                  onPress={() => navigation.navigate(ROUTES.ONBOARDING, { startStep: 3, isOAuthFlow: true, oauthProvider: "apple" })}
-                >
-                  <Ionicons name="logo-apple" size={20} color={colors.foreground} />
-                  <Text style={styles.oauthBtnText}>Continue with Apple</Text>
-                </Pressable>
-                <Pressable
-                  style={({ pressed }) => [styles.oauthBtn, { marginTop: 10 }, pressed && { opacity: 0.75 }]}
-                  onPress={() => navigation.navigate(ROUTES.ONBOARDING, { startStep: 3, isOAuthFlow: true, oauthProvider: "google" })}
-                >
-                  <Ionicons name="logo-google" size={18} color={colors.foreground} />
-                  <Text style={styles.oauthBtnText}>Continue with Google</Text>
-                </Pressable>
-
-                <Divider />
-              </>
-            )}
 
             {/* Email input */}
             <View style={styles.inputGroup}>
@@ -1006,6 +969,24 @@ export default function OnboardingScreen({ route }) {
               loading={loading}
               disabled={!firstName.trim() || !username.trim() || username.length < 3 || usernameAvailable === false || checkingUsername}
             />
+
+            <Text style={styles.legalText}>
+              By creating an account in futrr, you agree to the{" "}
+              <Text
+                style={styles.legalLink}
+                onPress={() => Linking.openURL("https://futrr.app/terms.html")}
+              >
+                Terms and Conditions
+              </Text>
+              {" "}and confirmed that you have read the{" "}
+              <Text
+                style={styles.legalLink}
+                onPress={() => Linking.openURL("https://futrr.app/privacy.html")}
+              >
+                Privacy Policy
+              </Text>
+              .
+            </Text>
           </View>
         );
 
@@ -1503,25 +1484,19 @@ const makeStyles = (colors) => StyleSheet.create({
   },
 
   // ── OAuth ──
-  oauthBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 14,
-    paddingVertical: 15,
-    backgroundColor: colors.card,
-  },
-  oauthBtnText: {
-    fontSize: 15,
-    color: colors.foreground,
-    fontWeight: "400",
-    letterSpacing: 0.2,
-  },
-
   // ── Alt links ──
+  legalText: {
+    fontSize: 11,
+    lineHeight: 17,
+    color: colors.mutedFg,
+    textAlign: "center",
+    marginTop: 16,
+    paddingHorizontal: 8,
+  },
+  legalLink: {
+    color: colors.primary,
+    textDecorationLine: "underline",
+  },
   altRow: {
     flexDirection: "row",
     justifyContent: "center",

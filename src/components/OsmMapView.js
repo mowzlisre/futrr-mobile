@@ -18,6 +18,7 @@ import {
   View,
   StyleSheet,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import {
   forwardRef,
@@ -36,6 +37,10 @@ const TILE_LIGHT = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x
 const TILE_DARK  = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
 const ATTR       = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
 
+// Cloudflare CDN — faster and more reliable than unpkg for mobile
+const LEAFLET_CSS = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css";
+const LEAFLET_JS  = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";
+
 // ─── Leaflet HTML ─────────────────────────────────────────────────────────────
 
 function buildHtml({ isDark, lat, lng, zoom, primaryColor }) {
@@ -47,7 +52,7 @@ function buildHtml({ isDark, lat, lng, zoom, primaryColor }) {
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet" href="${LEAFLET_CSS}"/>
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
   html,body,#map{width:100%;height:100%;background:${bg}}
@@ -78,8 +83,10 @@ function buildHtml({ isDark, lat, lng, zoom, primaryColor }) {
 </head>
 <body>
 <div id="map"></div>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="${LEAFLET_JS}" async></script>
 <script>
+// Wait for Leaflet to finish loading before initialising the map
+function initMap(){
 var map = L.map('map',{zoomControl:false,attributionControl:false})
          .setView([${lat},${lng}],${zoom});
 
@@ -171,6 +178,13 @@ window.setRadiusCircle = function(lat,lng,radiusM,color){
 window.clearRadiusCircle = function(){
   if(_radiusCircle){ map.removeLayer(_radiusCircle); _radiusCircle=null; }
 };
+} // end initMap
+
+// Leaflet loaded async — poll until L is available then init
+(function wait(){
+  if(window.L){ initMap(); }
+  else { setTimeout(wait, 20); }
+})();
 </script>
 </body>
 </html>`;
@@ -305,8 +319,15 @@ const OsmMapView = forwardRef(function OsmMapView(
         originWhitelist={["*"]}
         mixedContentMode="always"
         androidLayerType="hardware"
+        cacheEnabled
+        cacheMode="LOAD_CACHE_ELSE_NETWORK"
+        renderLoading={() => (
+          <View style={styles.loader}>
+            <ActivityIndicator size="large" color={primaryColor} />
+          </View>
+        )}
+        startInLoadingState
       />
-      {/* React Native children (e.g. fixed center-pin overlay) */}
       {children}
     </View>
   );
@@ -317,4 +338,9 @@ export default OsmMapView;
 const styles = StyleSheet.create({
   root: { overflow: "hidden" },
   webview: { flex: 1 },
+  loader: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });

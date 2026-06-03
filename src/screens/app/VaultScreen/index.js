@@ -37,8 +37,35 @@ function StatCard({ value, label, unit, onPress, styles }) {
 
 function CapsuleCard({ capsule, onPress, styles }) {
   const { colors } = useTheme();
+  const isBroken = capsule.status === "broken";
   const isUnlocked = capsule.status === "unlocked";
-  const isUnlockable = !isUnlocked && getDaysUntil(capsule.unlocksAt) <= 0;
+  const isUnlockable = !isUnlocked && !isBroken && getDaysUntil(capsule.unlocksAt) <= 0;
+
+  if (isBroken) {
+    return (
+      <View style={[styles.capsuleCard, styles.capsuleCardBroken]}>
+        <View style={styles.cardHeader}>
+          <View style={[styles.cardAvatar, styles.cardAvatarBroken]}>
+            <Ionicons name="ban-outline" size={16} color={colors.mutedFg} />
+          </View>
+          <View style={styles.cardSenderInfo}>
+            <Text style={[styles.cardSenderName, { opacity: 0.5 }]}>From {capsule.from}</Text>
+            {capsule.sealedAt ? (
+              <Text style={styles.cardSealedDate}>Sealed {formatDate(capsule.sealedAt)}</Text>
+            ) : null}
+          </View>
+          <View style={styles.statusBadgeBroken}>
+            <Ionicons name="alert-circle-outline" size={11} color={colors.mutedFg} />
+            <Text style={styles.statusBadgeTextBroken}>Broken</Text>
+          </View>
+        </View>
+        <Text style={[styles.capsuleTitle, styles.capsuleTitleBroken]} numberOfLines={2}>
+          {capsule.title}
+        </Text>
+        <Text style={styles.brokenNote}>Contents permanently deleted</Text>
+      </View>
+    );
+  }
 
   return (
     <Pressable
@@ -138,10 +165,16 @@ export default function VaultScreen() {
   // Re-fetch when app comes back to foreground
   useAppForeground(() => loadCapsules());
 
-  // Prepend newly created capsules immediately
+  // Handle vault bus events: new capsule prepend OR status patch (e.g. broken)
   useEffect(() => {
-    return vaultBus.on((newCapsule) => {
-      setCapsules((prev) => [newCapsule, ...prev]);
+    return vaultBus.on((event) => {
+      if (event._updateId) {
+        setCapsules((prev) =>
+          prev.map((c) => (c.id === event._updateId ? { ...c, ...event } : c))
+        );
+      } else {
+        setCapsules((prev) => [event, ...prev]);
+      }
     });
   }, []);
 
@@ -171,6 +204,7 @@ export default function VaultScreen() {
   }, [sealed, loadCapsules]);
 
   const handleCapsulePress = (capsule) => {
+    if (capsule.status === "broken") return;
     if (capsule.status === "unlocked") {
       navigation.navigate(ROUTES.UNLOCKED_CAPSULE, { capsule });
     } else {
@@ -314,6 +348,40 @@ const makeStyles = (colors) => StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     gap: 12,
+  },
+  capsuleCardBroken: {
+    opacity: 0.5,
+    borderStyle: "dashed",
+  },
+  cardAvatarBroken: {
+    borderColor: colors.border,
+    borderWidth: 1,
+  },
+  statusBadgeBroken: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: colors.secondaryBackground,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  statusBadgeTextBroken: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: colors.mutedFg,
+    fontWeight: "500",
+  },
+  capsuleTitleBroken: {
+    opacity: 0.4,
+    textDecorationLine: "line-through",
+  },
+  brokenNote: {
+    fontSize: 11,
+    color: colors.mutedFg,
+    opacity: 0.7,
   },
   cardHeader: {
     flexDirection: "row",

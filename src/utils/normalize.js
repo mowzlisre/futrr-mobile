@@ -94,8 +94,6 @@ function senderInitial(notifType) {
       return "U";
     case "recipient_added":
       return "R";
-    case "follow_request":
-      return "F";
     case "event_joined":
     case "event_unlocked":
       return "E";

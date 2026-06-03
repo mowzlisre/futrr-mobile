@@ -17,7 +17,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { ROUTES } from "@/constants";
 import { getNotifications, markNotificationRead } from "@/services/notifications";
 import { acceptCapsuleInvitation, declineCapsuleInvitation } from "@/services/capsules";
-import { getFollowRequests, acceptFollowRequest, rejectFollowRequest, searchUsers } from "@/services/user";
+import { searchUsers } from "@/services/user";
 import { normalizeNotification } from "@/utils/normalize";
 
 // ── Parse @mentions and make them tappable ────────────────────────────────────
@@ -45,47 +45,6 @@ function MessageWithMentions({ text, onMentionPress, style, mentionStyle }) {
         return <Text key={i}>{part}</Text>;
       })}
     </Text>
-  );
-}
-
-// ── Follow request row ────────────────────────────────────────────────────────
-
-function FollowRequestRow({ item, onAccept, onReject, busy, colors, styles }) {
-  const initial = item.from_user?.username?.[0]?.toUpperCase() ?? "?";
-  return (
-    <View style={styles.followRow}>
-      <View style={styles.avatar}>
-        {item.from_user?.avatar ? (
-          <Image source={{ uri: item.from_user.avatar }} style={styles.avatarImg} />
-        ) : (
-          <Text style={styles.avatarText}>{initial}</Text>
-        )}
-      </View>
-      <View style={styles.followInfo}>
-        <Text style={styles.followUsername}>@{item.from_user?.username}</Text>
-        <Text style={styles.followSub}>wants to follow you</Text>
-      </View>
-      <View style={styles.followActions}>
-        <Pressable
-          style={styles.followAccept}
-          onPress={() => onAccept(item)}
-          disabled={busy === item.id}
-        >
-          {busy === item.id ? (
-            <ActivityIndicator size="small" color={colors.primaryFg} />
-          ) : (
-            <Ionicons name="checkmark" size={16} color={colors.primaryFg} />
-          )}
-        </Pressable>
-        <Pressable
-          style={styles.followReject}
-          onPress={() => onReject(item)}
-          disabled={busy === item.id}
-        >
-          <Ionicons name="close" size={16} color={colors.mutedFg} />
-        </Pressable>
-      </View>
-    </View>
   );
 }
 
@@ -166,22 +125,16 @@ export default function NotificationsScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [notifications, setNotifications] = useState([]);
-  const [followRequests, setFollowRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [actionBusy, setActionBusy] = useState(null);
-  const [followBusy, setFollowBusy] = useState(null);
 
   const load = useCallback(async () => {
     try {
       setError(false);
-      const [notifs, requests] = await Promise.all([
-        getNotifications(),
-        getFollowRequests(),
-      ]);
+      const notifs = await getNotifications();
       setNotifications(notifs.map(normalizeNotification));
-      setFollowRequests(Array.isArray(requests) ? requests : []);
     } catch (_) {
       setError(true);
     } finally {
@@ -194,12 +147,8 @@ export default function NotificationsScreen() {
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [notifs, requests] = await Promise.all([
-        getNotifications(),
-        getFollowRequests(),
-      ]);
+      const notifs = await getNotifications();
       setNotifications(notifs.map(normalizeNotification));
-      setFollowRequests(Array.isArray(requests) ? requests : []);
       setError(false);
     } catch (_) {}
     setRefreshing(false);
@@ -252,30 +201,6 @@ export default function NotificationsScreen() {
     }
   };
 
-  const handleFollowAccept = async (item) => {
-    try {
-      setFollowBusy(item.id);
-      await acceptFollowRequest(item.id);
-      setFollowRequests((prev) => prev.filter((r) => r.id !== item.id));
-    } catch {
-      Alert.alert("Error", "Could not accept follow request.");
-    } finally {
-      setFollowBusy(null);
-    }
-  };
-
-  const handleFollowReject = async (item) => {
-    try {
-      setFollowBusy(item.id);
-      await rejectFollowRequest(item.id);
-      setFollowRequests((prev) => prev.filter((r) => r.id !== item.id));
-    } catch {
-      Alert.alert("Error", "Could not decline follow request.");
-    } finally {
-      setFollowBusy(null);
-    }
-  };
-
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       {/* Header */}
@@ -307,24 +232,6 @@ export default function NotificationsScreen() {
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} />
           }
-          ListHeaderComponent={
-            followRequests.length > 0 ? (
-              <View style={styles.followSection}>
-                <Text style={styles.followSectionTitle}>FOLLOW REQUESTS</Text>
-                {followRequests.map((req) => (
-                  <FollowRequestRow
-                    key={req.id}
-                    item={req}
-                    onAccept={handleFollowAccept}
-                    onReject={handleFollowReject}
-                    busy={followBusy}
-                    colors={colors}
-                    styles={styles}
-                  />
-                ))}
-              </View>
-            ) : null
-          }
           renderItem={({ item }) => (
             <NotificationItem
               item={item}
@@ -338,12 +245,10 @@ export default function NotificationsScreen() {
             />
           )}
           ListEmptyComponent={
-            followRequests.length === 0 ? (
-              <View style={styles.emptyBox}>
-                <Ionicons name="notifications-outline" size={40} color={colors.border} />
-                <Text style={styles.emptyText}>No notifications yet</Text>
-              </View>
-            ) : null
+            <View style={styles.emptyBox}>
+              <Ionicons name="notifications-outline" size={40} color={colors.border} />
+              <Text style={styles.emptyText}>No notifications yet</Text>
+            </View>
           }
         />
       )}
@@ -375,33 +280,6 @@ const makeStyles = (colors) => StyleSheet.create({
   },
   list: { paddingHorizontal: 20, paddingBottom: 24, gap: 8 },
 
-  // Follow requests
-  followSection: { marginBottom: 20 },
-  followSectionTitle: {
-    fontSize: 10, color: colors.mutedFg, letterSpacing: 2,
-    textTransform: "uppercase", fontWeight: "500", marginBottom: 10,
-  },
-  followRow: {
-    flexDirection: "row", alignItems: "center",
-    backgroundColor: colors.card, borderRadius: 16,
-    padding: 14, borderWidth: 1, borderColor: colors.border,
-    marginBottom: 8, gap: 12,
-  },
-  followInfo: { flex: 1 },
-  followUsername: { fontSize: 14, fontWeight: "600", color: colors.foreground },
-  followSub: { fontSize: 12, color: colors.mutedFg, marginTop: 2 },
-  followActions: { flexDirection: "row", gap: 8 },
-  followAccept: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: colors.primary,
-    alignItems: "center", justifyContent: "center",
-  },
-  followReject: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: colors.secondaryBackground,
-    alignItems: "center", justifyContent: "center",
-    borderWidth: 1, borderColor: colors.border,
-  },
   avatarImg: { width: "100%", height: "100%", borderRadius: 22 },
 
   // Notification item

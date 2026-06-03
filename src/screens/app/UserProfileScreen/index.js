@@ -6,6 +6,7 @@ import {
   RefreshControl,
   StyleSheet,
   ActivityIndicator,
+  Image,
 } from "react-native";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Ionicons } from "@expo/vector-icons";
@@ -13,7 +14,7 @@ import { useNavigation, useRoute } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { fonts } from "@/constants";
 import { useTheme } from "@/hooks/useTheme";
-import { getUserProfile, followUser, unfollowUser } from "@/services/user";
+import { getUserProfile } from "@/services/user";
 import { formatDate } from "@/utils/date";
 
 // ─── Capsule mini-card ─────────────────────────────────────────────────────────
@@ -37,17 +38,6 @@ function CapsuleMini({ capsule, colors, styles }) {
   );
 }
 
-// ─── Stat item ────────────────────────────────────────────────────────────────
-
-function StatItem({ value, label, styles }) {
-  return (
-    <View style={styles.statItem}>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  );
-}
-
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function UserProfileScreen() {
@@ -60,15 +50,12 @@ export default function UserProfileScreen() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [following, setFollowing] = useState(false);
-  const [followLoading, setFollowLoading] = useState(false);
 
   const load = useCallback(async () => {
     if (!userId) return;
     try {
       const data = await getUserProfile(userId);
       setProfile(data);
-      setFollowing(data.is_following ?? false);
     } catch {
       // show minimal UI
     } finally {
@@ -86,34 +73,9 @@ export default function UserProfileScreen() {
     try {
       const data = await getUserProfile(userId);
       setProfile(data);
-      setFollowing(data.is_following ?? false);
     } catch {}
     setRefreshing(false);
   }, [userId]);
-
-  const handleFollowToggle = async () => {
-    if (followLoading) return;
-    setFollowLoading(true);
-    try {
-      if (following) {
-        await unfollowUser(userId);
-        setFollowing(false);
-        setProfile((p) =>
-          p ? { ...p, followers_count: Math.max(0, (p.followers_count ?? 1) - 1) } : p
-        );
-      } else {
-        await followUser(userId);
-        setFollowing(true);
-        setProfile((p) =>
-          p ? { ...p, followers_count: (p.followers_count ?? 0) + 1 } : p
-        );
-      }
-    } catch {
-      // revert on error
-    } finally {
-      setFollowLoading(false);
-    }
-  };
 
   const displayName = profile?.username ?? initialUsername ?? "User";
   const initial = displayName[0]?.toUpperCase() ?? "?";
@@ -150,53 +112,23 @@ export default function UserProfileScreen() {
           <View style={styles.avatarSection}>
             <View style={styles.avatarRing}>
               <View style={styles.avatar}>
-                <Text style={styles.avatarInitial}>{initial}</Text>
+                {profile?.avatar ? (
+                  <Image source={{ uri: profile.avatar }} style={styles.avatarImage} />
+                ) : (
+                  <Text style={styles.avatarInitial}>{initial}</Text>
+                )}
               </View>
             </View>
             <Text style={styles.username}>{displayName}</Text>
             {profile?.bio ? (
               <Text style={styles.bio}>{profile.bio}</Text>
             ) : null}
+            <View style={styles.capsuleBadge}>
+              <Text style={styles.capsuleBadgeText}>
+                {profile?.public_capsules?.length ?? 0} Capsules
+              </Text>
+            </View>
           </View>
-
-          {/* Stats row */}
-          <View style={styles.statsRow}>
-            <StatItem value={profile?.followers_count ?? 0} label="Followers" styles={styles} />
-            <View style={styles.statDivider} />
-            <StatItem value={profile?.following_count ?? 0} label="Following" styles={styles} />
-            <View style={styles.statDivider} />
-            <StatItem
-              value={profile?.public_capsules?.length ?? 0}
-              label="Capsules"
-              styles={styles}
-            />
-          </View>
-
-          {/* Follow button */}
-          <Pressable
-            onPress={handleFollowToggle}
-            disabled={followLoading}
-            style={({ pressed }) => [
-              styles.followBtn,
-              following && styles.followBtnActive,
-              pressed && { opacity: 0.8 },
-            ]}
-          >
-            {followLoading ? (
-              <ActivityIndicator size="small" color={following ? colors.mutedFg : colors.primaryFg} />
-            ) : (
-              <>
-                <Ionicons
-                  name={following ? "person-remove-outline" : "person-add-outline"}
-                  size={16}
-                  color={following ? colors.mutedFg : colors.primaryFg}
-                />
-                <Text style={[styles.followBtnText, following && styles.followBtnTextActive]}>
-                  {following ? "Unfollow" : "Follow"}
-                </Text>
-              </>
-            )}
-          </Pressable>
 
           {/* Pinned capsules */}
           {profile?.pinned_capsules?.length > 0 && (
@@ -304,6 +236,12 @@ const makeStyles = (colors) => StyleSheet.create({
     backgroundColor: colors.secondaryBackground,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+  },
+  avatarImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 42,
   },
   avatarInitial: {
     fontSize: 34,
@@ -322,66 +260,24 @@ const makeStyles = (colors) => StyleSheet.create({
     textAlign: "center",
     lineHeight: 20,
     paddingHorizontal: 20,
+    marginBottom: 10,
   },
-  statsRow: {
+  capsuleBadge: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: colors.card,
-    borderRadius: 16,
+    gap: 5,
+    backgroundColor: `${colors.primary}15`,
     borderWidth: 1,
-    borderColor: colors.border,
-    paddingVertical: 16,
-    marginBottom: 16,
+    borderColor: `${colors.primary}35`,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    marginTop: 6,
   },
-  statItem: {
-    flex: 1,
-    alignItems: "center",
-  },
-  statValue: {
-    fontSize: 22,
+  capsuleBadgeText: {
+    fontSize: 12,
     fontWeight: "600",
-    color: colors.foreground,
-  },
-  statLabel: {
-    fontSize: 11,
-    lineHeight: 16,
-    color: colors.mutedFg,
-    marginTop: 3,
-  },
-  statDivider: {
-    width: 1,
-    height: 32,
-    backgroundColor: colors.border,
-  },
-  followBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: colors.primary,
-    borderRadius: 14,
-    paddingVertical: 13,
-    marginBottom: 32,
-    shadowColor: colors.primary,
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 4,
-  },
-  followBtnActive: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  followBtnText: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: colors.primaryFg,
-  },
-  followBtnTextActive: {
-    color: colors.mutedFg,
+    color: colors.primary,
   },
   sectionHeader: {
     marginBottom: 14,

@@ -54,7 +54,7 @@ function TabItem({ tab, isActive, onPress, colors, styles }) {
         <Ionicons
           name={isActive ? tab.active : tab.icon}
           size={20}
-          color={isActive ? colors.foreground : colors.mutedFg}
+          color={isActive ? colors.primary : colors.mutedFg}
         />
         <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
           {tab.name}
@@ -223,7 +223,7 @@ const makeStyles = (colors, isDark) => StyleSheet.create({
     fontWeight: "500",
   },
   tabLabelActive: {
-    color: colors.foreground,
+    color: colors.primary,
   },
   activeDot: {
     position: "absolute",

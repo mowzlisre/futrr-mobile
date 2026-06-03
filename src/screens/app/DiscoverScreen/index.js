@@ -8,22 +8,22 @@ import {
   TextInput,
   StyleSheet,
   ActivityIndicator,
-  FlatList,
 } from "react-native";
 import { useState, useEffect, useCallback, useRef, memo, useMemo } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { fonts, ROUTES } from "@/constants";
 import { useTheme } from "@/hooks/useTheme";
-import { getFriendsFeed, getGlobalFeed, searchDiscover } from "@/services/discover";
+import { getGlobalFeed, searchDiscover } from "@/services/discover";
 import { getEvents } from "@/services/events";
-import { followUser, unfollowUser } from "@/services/user";
 import { normalizeCapsule } from "@/utils/normalize";
 import { useAuth } from "@/hooks/useAuth";
 import { getDaysUntil, formatDate } from "@/utils/date";
 import { eventBus } from "@/utils/eventBus";
 
-const FILTER_TABS = ["Friends", "Events", "Global"];
+const FILTER_TABS = ["Events", "Global"];
+
+const toErrorType = (err) => (!err?.response ? "network" : "server");
 
 // ─── Shared card components ───────────────────────────────────────────────────
 
@@ -141,119 +141,7 @@ function EventRow({ event, styles }) {
   );
 }
 
-function PersonRow({ person, onFollowToggle, styles }) {
-  const { colors } = useTheme();
-  const navigation = useNavigation();
-  const [following, setFollowing] = useState(person.is_following);
-  const [loading, setLoading] = useState(false);
-
-  const toggle = async () => {
-    if (loading) return;
-    setLoading(true);
-    try {
-      if (following) {
-        await unfollowUser(person.id);
-        setFollowing(false);
-      } else {
-        await followUser(person.id);
-        setFollowing(true);
-      }
-      onFollowToggle?.(person.id, !following);
-    } catch (_) {
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const goToProfile = () => {
-    navigation.navigate(ROUTES.USER_PROFILE, { userId: person.id, username: person.username });
-  };
-
-  return (
-    <View style={styles.personRow}>
-      <Pressable onPress={goToProfile} style={styles.personAvatar}>
-        <Text style={styles.personAvatarText}>
-          {(person.username || "?")[0].toUpperCase()}
-        </Text>
-      </Pressable>
-      <Pressable onPress={goToProfile} style={styles.rowInfo}>
-        <Text style={styles.rowTitle}>@{person.username}</Text>
-        <Text style={styles.rowMetaText}>
-          {person.followers_count ?? 0} followers · {person.capsules_sealed ?? 0} capsules
-        </Text>
-      </Pressable>
-      <Pressable
-        onPress={toggle}
-        disabled={loading}
-        style={[styles.followBtn, following && styles.followingBtn]}
-      >
-        {loading ? (
-          <ActivityIndicator size="small" color={following ? colors.mutedFg : colors.primaryFg} />
-        ) : (
-          <Text style={[styles.followBtnText, following && styles.followingBtnText]}>
-            {following ? "Following" : "Follow"}
-          </Text>
-        )}
-      </Pressable>
-    </View>
-  );
-}
-
 // ─── Tab content ──────────────────────────────────────────────────────────────
-
-const FriendsTab = memo(function FriendsTab({ userId, refreshKey, styles, onRefreshDone }) {
-  const { colors } = useTheme();
-  const navigation = useNavigation();
-  const [capsules, setCapsules] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-
-  const load = useCallback(() => {
-    setLoading(true);
-    setError(false);
-    getFriendsFeed()
-      .then((data) => {
-        const list = data.results ?? data;
-        setCapsules(list.map((c) => normalizeCapsule(c, userId)));
-      })
-      .catch(() => setError(true))
-      .finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-
-  useEffect(() => {
-    if (refreshKey === 0) return;
-    setLoading(true);
-    setError(false);
-    getFriendsFeed()
-      .then((data) => {
-        const list = data.results ?? data;
-        setCapsules(list.map((c) => normalizeCapsule(c, userId)));
-      })
-      .catch(() => setError(true))
-      .finally(() => { setLoading(false); onRefreshDone?.(); });
-  }, [refreshKey]);
-
-  if (loading) return <ActivityIndicator color={colors.primary} style={{ marginTop: 32 }} />;
-  if (error) return <ErrorHint onRetry={load} styles={styles} />;
-  if (!capsules.length)
-    return <EmptyHint icon="people-outline" text="Follow people to see their public capsules here" styles={styles} />;
-
-  return capsules.map((c) => (
-    <CapsuleRow
-      key={c.id}
-      capsule={c}
-      onPress={() =>
-        navigation.navigate(
-          c.status === "unlocked" ? ROUTES.UNLOCKED_CAPSULE : ROUTES.LOCKED_CAPSULE,
-          { capsule: c }
-        )
-      }
-      styles={styles}
-    />
-  ));
-});
 
 const EventsTab = memo(function EventsTab({ refreshKey, styles, onRefreshDone }) {
   const { colors } = useTheme();
@@ -266,7 +154,7 @@ const EventsTab = memo(function EventsTab({ refreshKey, styles, onRefreshDone })
     setError(false);
     getEvents()
       .then((d) => setEvents(d.results ?? []))
-      .catch(() => setError(true))
+      .catch((err) => setError(toErrorType(err)))
       .finally(() => setLoading(false));
   }, []);
 
@@ -278,7 +166,7 @@ const EventsTab = memo(function EventsTab({ refreshKey, styles, onRefreshDone })
     setError(false);
     getEvents()
       .then((d) => setEvents(d.results ?? []))
-      .catch(() => setError(true))
+      .catch((err) => setError(toErrorType(err)))
       .finally(() => { setLoading(false); onRefreshDone?.(); });
   }, [refreshKey]);
 
@@ -290,7 +178,7 @@ const EventsTab = memo(function EventsTab({ refreshKey, styles, onRefreshDone })
   }, []);
 
   if (loading) return <ActivityIndicator color={colors.primary} style={{ marginTop: 32 }} />;
-  if (error) return <ErrorHint onRetry={load} styles={styles} />;
+  if (error) return <ErrorHint errorType={error} onRetry={load} styles={styles} />;
   if (!events.length)
     return <EmptyHint icon="calendar-outline" text="No events yet" styles={styles} />;
 
@@ -309,7 +197,7 @@ const GlobalTab = memo(function GlobalTab({ userId, refreshKey, styles, onRefres
     setError(false);
     getGlobalFeed()
       .then((d) => setCapsules((d.capsules ?? []).map((c) => normalizeCapsule(c, userId))))
-      .catch(() => setError(true))
+      .catch((err) => setError(toErrorType(err)))
       .finally(() => setLoading(false));
   }, []);
 
@@ -321,14 +209,14 @@ const GlobalTab = memo(function GlobalTab({ userId, refreshKey, styles, onRefres
     setError(false);
     getGlobalFeed()
       .then((d) => setCapsules((d.capsules ?? []).map((c) => normalizeCapsule(c, userId))))
-      .catch(() => setError(true))
+      .catch((err) => setError(toErrorType(err)))
       .finally(() => { setLoading(false); onRefreshDone?.(); });
   }, [refreshKey]);
 
   if (loading) return <ActivityIndicator color={colors.primary} style={{ marginTop: 32 }} />;
-  if (error) return <ErrorHint onRetry={load} styles={styles} />;
+  if (error) return <ErrorHint errorType={error} onRetry={load} styles={styles} />;
   if (!capsules.length)
-    return <EmptyHint icon="earth-outline" text="No global capsules yet" styles={styles} />;
+    return <EmptyHint icon="earth-outline" text="No nearby capsules" styles={styles} />;
 
   return capsules.map((c) => (
     <DiscoverCapsuleCard
@@ -355,12 +243,19 @@ function EmptyHint({ icon, text, styles }) {
   );
 }
 
-function ErrorHint({ onRetry, styles }) {
+function ErrorHint({ errorType, onRetry, styles }) {
   const { colors } = useTheme();
+  const isNetwork = errorType === "network";
   return (
     <Pressable onPress={onRetry} style={styles.errorBox}>
-      <Ionicons name="cloud-offline-outline" size={40} color={colors.border} />
-      <Text style={styles.errorText}>Could not load content</Text>
+      <Ionicons
+        name={isNetwork ? "wifi-outline" : "cloud-offline-outline"}
+        size={40}
+        color={colors.border}
+      />
+      <Text style={styles.errorText}>
+        {isNetwork ? "No internet connection" : "Something went wrong"}
+      </Text>
       <Text style={styles.retryText}>Tap to retry</Text>
     </Pressable>
   );
@@ -370,18 +265,15 @@ function ErrorHint({ onRetry, styles }) {
 
 const SearchResults = memo(function SearchResults({ results, userId, activeTab, styles }) {
   const navigation = useNavigation();
-  const { capsules = [], people = [], events = [] } = results;
+  const { capsules = [], events = [] } = results;
 
-  // Filter results based on active tab
-  const showCapsules = activeTab === "Friends" || activeTab === "Global";
+  const showCapsules = activeTab === "Global";
   const showEvents = activeTab === "Events";
-  const showPeople = activeTab === "Friends";
 
   const hasCapsules = showCapsules && capsules.length > 0;
   const hasEvents = showEvents && events.length > 0;
-  const hasPeople = showPeople && people.length > 0;
 
-  if (!hasCapsules && !hasEvents && !hasPeople) {
+  if (!hasCapsules && !hasEvents) {
     return <EmptyHint icon="search-outline" text="No results found" styles={styles} />;
   }
   return (
@@ -409,16 +301,6 @@ const SearchResults = memo(function SearchResults({ results, userId, activeTab, 
           })}
         </>
       )}
-      {hasPeople && (
-        <>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>PEOPLE</Text>
-          </View>
-          {people.map((p) => (
-            <PersonRow key={p.id} person={p} styles={styles} />
-          ))}
-        </>
-      )}
       {hasEvents && (
         <>
           <View style={styles.sectionHeader}>
@@ -439,7 +321,7 @@ export default function DiscoverScreen() {
   const { user } = useAuth();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const [activeTab, setActiveTab] = useState("Friends");
+  const [activeTab, setActiveTab] = useState("Events");
   const [searchText, setSearchText] = useState("");
   const [searchResults, setSearchResults] = useState(null);
   const [searching, setSearching] = useState(false);
@@ -549,7 +431,6 @@ export default function DiscoverScreen() {
         ) : null
       ) : (
         <>
-          {activeTab === "Friends" && <FriendsTab userId={user?.id} refreshKey={refreshKey} styles={styles} onRefreshDone={handleRefreshDone} />}
           {activeTab === "Events" && <EventsTab refreshKey={refreshKey} styles={styles} onRefreshDone={handleRefreshDone} />}
           {activeTab === "Global" && <GlobalTab userId={user?.id} refreshKey={refreshKey} styles={styles} onRefreshDone={handleRefreshDone} />}
         </>
@@ -659,32 +540,6 @@ const makeStyles = (colors) => StyleSheet.create({
     alignItems: "center", justifyContent: "center",
     marginRight: 12,
   },
-  personRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: colors.background,
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: 8,
-  },
-  personAvatar: {
-    width: 38, height: 38, borderRadius: 19,
-    backgroundColor: colors.secondaryBackground,
-    borderWidth: 1.5, borderColor: `${colors.primary}30`,
-    alignItems: "center", justifyContent: "center",
-    marginRight: 12,
-  },
-  personAvatarText: { fontSize: 14, fontWeight: "600", color: colors.foreground },
-  followBtn: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 14, minWidth: 80, alignItems: "center",
-  },
-  followingBtn: { backgroundColor: colors.secondaryBackground, borderWidth: 1, borderColor: colors.border },
-  followBtnText: { fontSize: 12, fontWeight: "700", color: colors.primaryFg },
-  followingBtnText: { color: colors.mutedFg },
-
   emptyBox: { alignItems: "center", gap: 12, marginTop: 48 },
   emptyText: { fontSize: 14, color: colors.mutedFg, textAlign: "center" },
   errorBox: { alignItems: "center", gap: 8, marginTop: 48 },
